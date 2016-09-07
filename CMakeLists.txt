@@ -85,7 +85,7 @@ endif()
 
 file(STRINGS "VERSION" TCC_VERSION)
 list(GET TCC_VERSION 0 TCC_VERSION)
-include_directories(${CMAKE_BINARY_DIR})
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
 configure_file(config.h.in config.h)
 configure_file(config.texi.in config.texi)
 
@@ -113,12 +113,12 @@ macro(make_libtcc1 prefix xcc xar defs includes sources)
   if("${prefix}" STRGREATER "")
     set(libtcc1_prefix ${prefix}-)
   endif()
-  set(libtcc1_flags -I${CMAKE_SOURCE_DIR}/include)
+  set(libtcc1_flags -I${CMAKE_CURRENT_SOURCE_DIR}/include)
   foreach(i ${defs})
     set(libtcc1_flags ${libtcc1_flags} -D${i})
   endforeach()
   foreach(i ${includes})
-    set(libtcc1_flags ${libtcc1_flags} -I${CMAKE_SOURCE_DIR}/${i})
+	set(libtcc1_flags ${libtcc1_flags} -I${CMAKE_CURRENT_SOURCE_DIR}/${i})
   endforeach()
   set(libtcc1_objects)
   foreach(libtcc1_c lib/libtcc1.c ${sources})
@@ -126,8 +126,8 @@ macro(make_libtcc1 prefix xcc xar defs includes sources)
     string(REGEX MATCH "^[^.]+" libtcc1_o ${libtcc1_o})
     set(libtcc1_o ${libtcc1_prefix}${libtcc1_o}.o)
     add_custom_command(OUTPUT ${libtcc1_o}
-      COMMAND ${xcc} ${libtcc1_flags} -c ${CMAKE_SOURCE_DIR}/${libtcc1_c} -o ${libtcc1_o}
-      DEPENDS ${xcc} ${CMAKE_SOURCE_DIR}/${libtcc1_c}
+	  COMMAND ${xcc} ${libtcc1_flags} -c ${CMAKE_CURRENT_SOURCE_DIR}/${libtcc1_c} -o ${libtcc1_o}
+	  DEPENDS ${xcc} ${CMAKE_CURRENT_SOURCE_DIR}/${libtcc1_c}
     )
     list(APPEND libtcc1_objects ${libtcc1_o})
   endforeach()
