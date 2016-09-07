@@ -156,7 +156,7 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
     endforeach()
     
     if (TCC_BUILD_NATIVE)
-      add_library(libtcc
+      add_library(libtcc STATIC
         libtcc.c
         tccpp.c
         tccgen.c
