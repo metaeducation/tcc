@@ -830,6 +830,8 @@ static void pe_build_imports(struct pe_info *pe)
                     if (dllref) {
                         if ( !dllref->handle )
                             dllref->handle = LoadLibrary(dllref->name);
+                        if ( !dllref->handle )
+                            tcc_error_noabort("can't load library '%s': error code %d", dllref->name, GetLastError());
                         v = (ADDR3264)GetProcAddress(dllref->handle, ordinal?(LPCSTR)NULL+ordinal:name);
                     }
                     if (!v)
