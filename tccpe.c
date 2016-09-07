@@ -1646,7 +1646,7 @@ ST_FUNC int pe_load_file(struct TCCState *s1, const char *filename, int fd)
     else if (pe_load_res(s1, fd) == 0)
         ret = 0;
     else if (read_mem(fd, 0, buf, sizeof buf) && 0 == strncmp(buf, "MZ", 2))
-        ret = pe_load_dll(s1, tcc_basename(filename), fd);
+        ret = pe_load_dll(s1, filename, fd);
     return ret;
 }
 
