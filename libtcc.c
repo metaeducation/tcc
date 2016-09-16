@@ -1146,11 +1146,17 @@ LIBTCCAPI TCCState *tcc_new(void)
 #if defined TCC_TARGET_PE && defined TCC_TARGET_X86_64
     tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned long long");
     tcc_define_symbol(s, "__PTRDIFF_TYPE__", "long long");
-    tcc_define_symbol(s, "__LLP64__", NULL);
 #else
     tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned long");
     tcc_define_symbol(s, "__PTRDIFF_TYPE__", "long");
+#endif
+
+#if defined TCC_TARGET_X86_64
+#if defined TCC_TARGET_PE
+    tcc_define_symbol(s, "__LLP64__", NULL);
+#else
     tcc_define_symbol(s, "__LP64__", NULL);
+#endif
 #endif
 
 #ifdef TCC_TARGET_PE
