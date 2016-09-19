@@ -1142,6 +1142,11 @@ LIBTCCAPI TCCState *tcc_new(void)
     tcc_define_symbol(s, "__NetBSD__", "__NetBSD__");
 # endif
 
+# if defined(__APPLE__)
+    tcc_define_symbol(s, "__APPLE__", NULL);
+    tcc_define_symbol(s, "__MACH__", NULL);
+# endif
+
     /* TinyCC & gcc defines */
 #if defined TCC_TARGET_PE && defined TCC_TARGET_X86_64
     tcc_define_symbol(s, "__SIZE_TYPE__", "unsigned long long");
