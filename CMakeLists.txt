@@ -98,7 +98,7 @@ set(ARM_SOURCES arm_gen.c)
 
 set(LIBTCC1_I386_SOURCES lib/alloca86.S lib/alloca86-bt.S)
 set(LIBTCC1_WIN_SOURCES win32/lib/crt1.c win32/lib/wincrt1.c win32/lib/dllcrt1.c win32/lib/dllmain.c win32/lib/chkstk.S)
-if(NOT WIN32)
+if(NOT WIN32 AND NOT APPLE)
   set(LIBTCC1_I386_SOURCES ${LIBTCC1_I386_SOURCES} lib/bcheck.c)
 endif()
 
