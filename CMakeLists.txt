@@ -80,6 +80,7 @@ set(TCC_BUILD_ARM_EABI OFF CACHE BOOL "Build ARM EABI cross compiler")
 set(TCC_BUILD_ARM_EABIHF OFF CACHE BOOL "Build ARM EABI hardware float cross compiler")
 set(TCC_BUILD_ARM OFF CACHE BOOL "Build ARM cross compiler")
 set(TCC_BUILD_C67 OFF CACHE BOOL "Build C67 cross compiler")
+set(TCC_EMBEDDED_IN_R3 ON CACHE BOOL "Build for being embedded in R3")
 
 set(TCC_ARM_VERSION ${TCC_ARM_VERSION_DEFAULT} CACHE STRING "ARM target CPU version")
 set_property(CACHE TCC_ARM_VERSION PROPERTY STRINGS 4 5 6 7)
@@ -115,7 +116,7 @@ set_target_properties(tiny_libmaker_32 PROPERTIES COMPILE_DEFINITIONS TCC_TARGET
 add_executable(tiny_libmaker_64 win32/tools/tiny_libmaker.c)
 set_target_properties(tiny_libmaker_64 PROPERTIES COMPILE_DEFINITIONS TCC_TARGET_X86_64)
 
-macro(make_libtcc1 prefix xcc xar defs includes sources)
+macro(make_libtcc1 prefix xcc xar defs includes embedded_sources sources)
   set(libtcc1_prefix)
   if("${prefix}" STRGREATER "")
     set(libtcc1_prefix ${prefix}-)
@@ -145,9 +146,12 @@ macro(make_libtcc1 prefix xcc xar defs includes sources)
   add_custom_target(${libtcc1_prefix}libtcc1 ALL DEPENDS ${libtcc1_prefix}libtcc1.a)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${libtcc1_prefix}libtcc1.a
     DESTINATION ${TCC_LIB_PATH}/${prefix} RENAME libtcc1.a)
+
+  add_library(r3_libtcc1 OBJECT lib/libtcc1.c ${embedded_sources})
+  target_compile_definitions(r3_libtcc1 PUBLIC "EMBEDDED_IN_R3;${defs}")
 endmacro()
 
-macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libtcc_ar libtcc_sources libtcc_includes)
+macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libtcc_ar libtcc_embedded_sources libtcc_sources libtcc_includes)
   if (xx${native_name} STREQUAL xx${TCC_NATIVE_TARGET})
     set(TCC_NATIVE_DEFINITIONS ${definitions})
     if("${CONFIG_MULTIARCHDIR}" STRGREATER "")
@@ -161,6 +165,11 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
     foreach(make_tcc_def ${TCC_NATIVE_DEFINITIONS})
       set(TCC_NATIVE_FLAGS ${TCC_NATIVE_FLAGS} -D${make_tcc_def})
     endforeach()
+
+    if (TCC_EMBEDDED_IN_R3)
+      set(TCC_NATIVE_DEFINITIONS ${TCC_NATIVE_DEFINITIONS} EMBEDDED_IN_R3)
+      message("TCC_NATIVE_DEFINITIONS: ${TCC_NATIVE_DEFINITIONS}")
+    endif()
     
     if (TCC_BUILD_NATIVE)
       add_library(libtcc STATIC
@@ -188,7 +197,7 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
       set_target_properties(tcc libtcc PROPERTIES COMPILE_DEFINITIONS "${TCC_NATIVE_DEFINITIONS}")
       
       if("${libtcc_sources}" STRGREATER "")
-        make_libtcc1("" tcc "${libtcc_ar}" "${TCC_NATIVE_DEFINITIONS}" "${libtcc_includes}" "${libtcc_sources}")
+        make_libtcc1("" tcc "${libtcc_ar}" "${TCC_NATIVE_DEFINITIONS}" "${libtcc_includes}" "${libtcc_embedded_sources}" "${libtcc_embedded_sources};${libtcc_sources}")
       endif()
     endif()
   elseif(${cross_enabled})
@@ -197,66 +206,76 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
     install(TARGETS ${cross_name}-tcc RUNTIME DESTINATION ${EXE_PATH})
     
     if("${libtcc_sources}" STRGREATER "")
-      make_libtcc1(${cross_name} "${cross_name}-tcc" "${libtcc_ar}" "${definitions}" "${libtcc_includes}" "${libtcc_sources}")
+      make_libtcc1(${cross_name} "${cross_name}-tcc" "${libtcc_ar}" "${definitions}" "${libtcc_includes}" "${libtcc_embedded_sources}" "${libtcc_sources}")
     endif()
   endif()
 endmacro()
 
+if (MSVC)
+  set(EMBEDDED_LIBTCC1_X86_ASM "lib/alloca86-intel.asm")
+  set(EMBEDDED_LIBTCC1_X86_64_ASM "lib/alloca86_64-intel.asm")
+else ()
+  set(EMBEDDED_LIBTCC1_X86_ASM "lib/alloca86.S")
+  set(EMBEDDED_LIBTCC1_X86_64_ASM "lib/alloca86_64.S")
+endif ()
+
 make_tcc("Win32" i386-w64-mingw32 TCC_BUILD_WIN32
   "TCC_TARGET_I386;TCC_TARGET_PE"
   "${I386_SOURCES};tccpe.c"
-  tiny_libmaker_32 "${LIBTCC1_I386_SOURCES};${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
+  tiny_libmaker_32 "${EMBEDDED_LIBTCC1_X86_ASM}" "${LIBTCC1_I386_SOURCES};${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
 )
 make_tcc("Win64" x86_64-w64-mingw32 TCC_BUILD_WIN64
   "TCC_TARGET_X86_64;TCC_TARGET_PE"
   "${X86_64_SOURCES};tccpe.c"
-  tiny_libmaker_64 "lib/alloca86_64.S;${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
+  tiny_libmaker_64 ${EMBEDDED_LIBTCC1_X86_64_ASM} "lib/alloca86_64.S;${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
 )
 make_tcc("WinCE" arm-wince-mingw32ce TCC_BUILD_WINCE
   "TCC_TARGET_ARM;TCC_ARM_VERSION=${TCC_ARM_VERSION};TCC_TARGET_PE"
   "${ARM_SOURCES};tccpe.c"
-  "" "" ""
+  "" "" "" ""
 )
 make_tcc("i386" i386-linux-gnu TCC_BUILD_I386
   TCC_TARGET_I386
   "${I386_SOURCES}"
-  tiny_libmaker_32 "${LIBTCC1_I386_SOURCES}" ""
+  tiny_libmaker_32 "${LIBTCC1_I386_SOURCES}" "${LIBTCC1_I386_SOURCES}" ""
 )
 make_tcc("x86_64" x86_64-linux-gnu TCC_BUILD_X64
   TCC_TARGET_X86_64
   "${X86_64_SOURCES}"
-  tiny_libmaker_64 "lib/alloca86_64.S" ""
+  tiny_libmaker_64 "lib/alloca86_64.S" "lib/alloca86_64.S" ""
 )
 set(ARM_DEFINITIONS TCC_TARGET_ARM TCC_ARM_VERSION=${TCC_ARM_VERSION})
 make_tcc("" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
   "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT"
   "${ARM_SOURCES}"
-  "" "" ""
+  "" "" "" ""
 )
 make_tcc("" arm-linux-gnueabi TCC_BUILD_ARM_EABI
   "${ARM_DEFINITIONS};TCC_ARM_EABI"
   "${ARM_SOURCES}"
-  "" "" ""
+  "" "" "" ""
 )
 make_tcc("" arm-linux-fpa TCC_BUILD_ARM_FPA
   "${ARM_DEFINITIONS}"
   "${ARM_SOURCES}"
-  "" "" ""
+  "" "" "" ""
 )
 make_tcc("" arm-linux-fpa-ld TCC_BUILD_ARM_FPA_LD
   "${ARM_DEFINITIONS};LDOUBLE_SIZE=12"
   "${ARM_SOURCES}"
-  "" "" ""
+  "" "" "" ""
 )
 make_tcc("" arm-linux-gnu TCC_BUILD_ARM_VFP
   "${ARM_DEFINITIONS};TCC_ARM_VFP"
   "${ARM_SOURCES}"
-  "" "" ""
+  "" "" "" ""
+
 )
 make_tcc("" c67 TCC_BUILD_C67
   TCC_TARGET_C67
   "c67-gen.c;tcccoff.c"
-  "" "" ""
+  "" "" "" ""
+
 )
 
 add_subdirectory(tests)

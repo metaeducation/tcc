@@ -28,6 +28,12 @@ the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  
 */
 
+#ifdef EMBEDDED_IN_R3
+#define TCC_EXPORT static
+#else
+#define TCC_EXPORT
+#endif
+
 #include <stdint.h>
 
 #define W_TYPE_SIZE   32
@@ -365,7 +371,7 @@ static UDWtype __udivmoddi4 (UDWtype n, UDWtype d, UDWtype *rp)
 
 #define __negdi2(a) (-(a))
 
-long long __divdi3(long long u, long long v)
+TCC_EXPORT long long __divdi3(long long u, long long v)
 {
     int c = 0;
     DWunion uu, vv;
@@ -388,7 +394,7 @@ long long __divdi3(long long u, long long v)
     return w;
 }
 
-long long __moddi3(long long u, long long v)
+TCC_EXPORT long long __moddi3(long long u, long long v)
 {
     int c = 0;
     DWunion uu, vv;
@@ -410,12 +416,12 @@ long long __moddi3(long long u, long long v)
     return w;
 }
 
-unsigned long long __udivdi3(unsigned long long u, unsigned long long v)
+TCC_EXPORT unsigned long long __udivdi3(unsigned long long u, unsigned long long v)
 {
     return __udivmoddi4 (u, v, (UDWtype *) 0);
 }
 
-unsigned long long __umoddi3(unsigned long long u, unsigned long long v)
+TCC_EXPORT unsigned long long __umoddi3(unsigned long long u, unsigned long long v)
 {
     UDWtype w;
     
@@ -424,7 +430,7 @@ unsigned long long __umoddi3(unsigned long long u, unsigned long long v)
 }
 
 /* XXX: fix tcc's code generator to do this instead */
-long long __ashrdi3(long long a, int b)
+TCC_EXPORT long long __ashrdi3(long long a, int b)
 {
 #ifdef __TINYC__
     DWunion u;
@@ -443,7 +449,7 @@ long long __ashrdi3(long long a, int b)
 }
 
 /* XXX: fix tcc's code generator to do this instead */
-unsigned long long __lshrdi3(unsigned long long a, int b)
+TCC_EXPORT unsigned long long __lshrdi3(unsigned long long a, int b)
 {
 #ifdef __TINYC__
     DWunion u;
@@ -462,7 +468,7 @@ unsigned long long __lshrdi3(unsigned long long a, int b)
 }
 
 /* XXX: fix tcc's code generator to do this instead */
-long long __ashldi3(long long a, int b)
+TCC_EXPORT long long __ashldi3(long long a, int b)
 {
 #ifdef __TINYC__
     DWunion u;
@@ -497,7 +503,7 @@ long long __tcc_cvt_ftol(long double x)
 #endif /* !__x86_64__ */
 
 /* XXX: fix tcc's code generator to do this instead */
-float __floatundisf(unsigned long long a)
+TCC_EXPORT float __floatundisf(unsigned long long a)
 {
     DWunion uu; 
     XFtype r;
@@ -512,7 +518,7 @@ float __floatundisf(unsigned long long a)
     }
 }
 
-double __floatundidf(unsigned long long a)
+TCC_EXPORT double __floatundidf(unsigned long long a)
 {
     DWunion uu; 
     XFtype r;
@@ -527,7 +533,7 @@ double __floatundidf(unsigned long long a)
     }
 }
 
-long double __floatundixf(unsigned long long a)
+TCC_EXPORT long double __floatundixf(unsigned long long a)
 {
     DWunion uu; 
     XFtype r;
@@ -542,7 +548,7 @@ long double __floatundixf(unsigned long long a)
     }
 }
 
-unsigned long long __fixunssfdi (float a1)
+TCC_EXPORT unsigned long long __fixunssfdi (float a1)
 {
     register union float_long fl1;
     register int exp;
@@ -566,7 +572,7 @@ unsigned long long __fixunssfdi (float a1)
         return 0;
 }
 
-unsigned long long __fixunsdfdi (double a1)
+TCC_EXPORT unsigned long long __fixunsdfdi (double a1)
 {
     register union double_long dl1;
     register int exp;
@@ -591,7 +597,7 @@ unsigned long long __fixunsdfdi (double a1)
         return 0;
 }
 
-unsigned long long __fixunsxfdi (long double a1)
+TCC_EXPORT unsigned long long __fixunsxfdi (long double a1)
 {
     register union ldouble_long dl1;
     register int exp;
@@ -614,21 +620,21 @@ unsigned long long __fixunsxfdi (long double a1)
         return 0;
 }
 
-long long __fixsfdi (float a1)
+TCC_EXPORT long long __fixsfdi (float a1)
 {
     long long ret; int s;
     ret = __fixunssfdi((s = a1 >= 0) ? a1 : -a1);
     return s ? ret : -ret;
 }
 
-long long __fixdfdi (double a1)
+TCC_EXPORT long long __fixdfdi (double a1)
 {
     long long ret; int s;
     ret = __fixunsdfdi((s = a1 >= 0) ? a1 : -a1);
     return s ? ret : -ret;
 }
 
-long long __fixxfdi (long double a1)
+TCC_EXPORT long long __fixxfdi (long double a1)
 {
     long long ret; int s;
     ret = __fixunsxfdi((s = a1 >= 0) ? a1 : -a1);
@@ -672,7 +678,7 @@ typedef struct {
 #undef __va_copy
 #undef __va_end
 
-void __va_start(__va_list_struct *ap, void *fp)
+TCC_EXPORT void __va_start(__va_list_struct *ap, void *fp)
 {
     memset(ap, 0, sizeof(__va_list_struct));
     *ap = *(__va_list_struct *)((char *)fp - 16);
@@ -680,7 +686,7 @@ void __va_start(__va_list_struct *ap, void *fp)
     ap->reg_save_area = (char *)fp - 176 - 16;
 }
 
-void *__va_arg(__va_list_struct *ap,
+TCC_EXPORT void *__va_arg(__va_list_struct *ap,
                enum __va_arg_type arg_type,
                int size, int align)
 {
@@ -721,7 +727,7 @@ void *__va_arg(__va_list_struct *ap,
 /* Flushing for tccrun */
 #if defined(TCC_TARGET_X86_64) || defined(TCC_TARGET_I386)
 
-void __clear_cache(void *beginning, void *end)
+TCC_EXPORT void __clear_cache(void *beginning, void *end)
 {
 }
 
@@ -732,7 +738,7 @@ void __clear_cache(void *beginning, void *end)
 #include <sys/syscall.h>
 #include <stdio.h>
 
-void __clear_cache(void *beginning, void *end)
+TCC_EXPORT void __clear_cache(void *beginning, void *end)
 {
 /* __ARM_NR_cacheflush is kernel private and should not be used in user space.
  * However, there is no ARM asm parser in tcc so we use it for now */
@@ -750,4 +756,38 @@ void __clear_cache(void *beginning, void *end)
 
 #else
 #warning __clear_cache not defined for this architecture, avoid using tcc -run
+#endif
+
+#ifdef EMBEDDED_IN_R3
+
+#define SYM_FUNC(x) #x, x
+extern void *r3_tcc_alloca(int);
+const void * r3_libtcc1_symbols[] = {
+    "alloca", r3_tcc_alloca,
+#if !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_ARM)
+    SYM_FUNC(__divdi3),
+    SYM_FUNC(__moddi3),
+    SYM_FUNC(__udivdi3),
+    SYM_FUNC(__umoddi3),
+    SYM_FUNC(__ashrdi3),
+    SYM_FUNC(__lshrdi3),
+    SYM_FUNC(__ashldi3),
+#endif
+    SYM_FUNC(__floatundisf),
+    SYM_FUNC(__floatundidf),
+    SYM_FUNC(__floatundixf),
+    SYM_FUNC(__fixunssfdi),
+    SYM_FUNC(__fixunsdfdi),
+    SYM_FUNC(__fixunsxfdi),
+    SYM_FUNC(__fixsfdi),
+    SYM_FUNC(__fixdfdi),
+    SYM_FUNC(__fixxfdi),
+#if defined(TCC_TARGET_X86_64) && !defined(_WIN64)
+    SYM_FUNC(__va_start),
+    SYM_FUNC(__va_arg),
+#endif
+    SYM_FUNC(__clear_cache),
+    0, 0 //Terminator
+};
+
 #endif

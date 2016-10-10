@@ -1,6 +1,10 @@
 /* ---------------------------------------------- */
 /* alloca86_64.S */
 
+#ifdef EMBEDDED_IN_R3
+#define alloca r3_tcc_alloca
+#endif
+
 .globl alloca
 
 alloca:

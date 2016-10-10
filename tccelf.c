@@ -1627,7 +1627,9 @@ ST_FUNC void tcc_add_runtime(TCCState *s1)
             tcc_add_file(s1, TCC_LIBGCC, TCC_FILETYPE_BINARY);
         }
 #endif
+#if !defined(EMBEDDED_IN_R3)
         tcc_add_support(s1, "libtcc1.a");
+#endif
     }
 
     /* tcc_add_bcheck tries to relocate a call to __bound_init in _init so
