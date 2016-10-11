@@ -119,6 +119,44 @@ union float_long {
 
 /* XXX: use gcc/tcc intrinsic ? */
 #if defined(TCC_TARGET_I386)
+#ifdef _MSC_VER //Microsoft VC
+// sh:sl = ah:al - bh:bl
+#define sub_ddmmss(sh, sl, ah, al, bh, bl) \
+do {\
+__asm mov edx, ah \
+__asm mov eax, al \
+__asm sub eax, bl \
+__asm sbb edx, bh \
+__asm mov sh, edx \
+__asm mov sl, eax \
+} while (0)
+
+// w1:w0 = u * v
+#define umul_ppmm(w1, w0, u, v) \
+do {\
+__asm mov eax, u \
+__asm mul v \
+__asm mov w0, eax \
+__asm mov w1, edx \
+} while (0)
+
+// dv * q + r = n1:n0
+#define udiv_qrnnd(q, r, n1, n0, dv) \
+do {\
+__asm mov edx, n1 \
+__asm mov eax, n0 \
+__asm div dv \
+__asm mov q, eax \
+__asm mov r, edx \
+} while (0)
+
+#define count_leading_zeros(count, x) \
+do { \
+    __asm bsr eax, x \
+    __asm xor eax, 31 \
+    __asm mov (count), eax \
+} while (0)
+#else
 #define sub_ddmmss(sh, sl, ah, al, bh, bl) \
   __asm__ ("subl %5,%1\n\tsbbl %3,%0"					\
 	   : "=r" ((USItype) (sh)),					\
@@ -147,6 +185,7 @@ union float_long {
 	     : "=r" (__cbtmp) : "rm" ((USItype) (x)));			\
     (count) = __cbtmp ^ 31;						\
   } while (0)
+#endif
 #else
 #error unsupported CPU type
 #endif
@@ -490,13 +529,23 @@ TCC_EXPORT long long __ashldi3(long long a, int b)
 long long __tcc_cvt_ftol(long double x)
 {
     unsigned c0, c1;
-    long long ret;
+    long long retv;
+#ifdef _MSC_VER
+    __asm fnstcw c0
+    c1 = c0 | 0x0C00;
+    __asm {
+        fldcw c1
+        fistp retv
+        fldcw c0
+    }
+#else
     __asm__ __volatile__ ("fnstcw %0" : "=m" (c0));
     c1 = c0 | 0x0C00;
     __asm__ __volatile__ ("fldcw %0" : : "m" (c1));
-    __asm__ __volatile__ ("fistpll %0"  : "=m" (ret));
+    __asm__ __volatile__ ("fistpll %0"  : "=m" (retv));
     __asm__ __volatile__ ("fldcw %0" : : "m" (c0));
-    return ret;
+#endif
+    return retv;
 }
 #endif
 

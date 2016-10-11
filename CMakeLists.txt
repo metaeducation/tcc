@@ -212,8 +212,10 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
 endmacro()
 
 if (MSVC)
+  enable_language(ASM_MASM)
   set(EMBEDDED_LIBTCC1_X86_ASM "lib/alloca86-intel.asm")
   set(EMBEDDED_LIBTCC1_X86_64_ASM "lib/alloca86_64-intel.asm")
+  set_source_files_properties(${EMBEDDED_LIBTCC1_X86_ASM} PROPERTIES COMPILE_FLAGS "/safeseh") #or it complains: error LNK2026: module unsafe for SAFESEH image
 else ()
   set(EMBEDDED_LIBTCC1_X86_ASM "lib/alloca86.S")
   set(EMBEDDED_LIBTCC1_X86_64_ASM "lib/alloca86_64.S")
