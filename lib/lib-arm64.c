@@ -9,12 +9,18 @@
  * without any warranty.
  */
 
+#include "r3.h"
+
 #include <stdint.h>
 #include <string.h>
 
-void __clear_cache(void *beg, void *end)
+TCC_EXPORT void __clear_cache(void *beg, void *end)
 {
+#ifdef __TINYC__
     __arm64_clear_cache(beg, end);
+#elif !defined(EMBEDDED_IN_R3)
+#error "__arm64_clear_cache is not implemented"
+#endif
 }
 
 typedef struct {
@@ -232,17 +238,17 @@ static long double f3_add(long double fa, long double fb, int neg)
     return f3_round(x_sgn, x_exp + 12, x);
 }
 
-long double __addtf3(long double a, long double b)
+TCC_EXPORT long double __addtf3(long double a, long double b)
 {
     return f3_add(a, b, 0);
 }
 
-long double __subtf3(long double a, long double b)
+TCC_EXPORT long double __subtf3(long double a, long double b)
 {
     return f3_add(a, b, 1);
 }
 
-long double __multf3(long double fa, long double fb)
+TCC_EXPORT long double __multf3(long double fa, long double fb)
 {
     u128_t a, b, x;
     int32_t a_exp, b_exp, x_exp;
@@ -307,7 +313,7 @@ long double __multf3(long double fa, long double fb)
     return f3_round(x_sgn, x_exp, x);
 }
 
-long double __divtf3(long double fa, long double fb)
+TCC_EXPORT long double __divtf3(long double fa, long double fb)
 {
     u128_t a, b, x;
     int32_t a_exp, b_exp, x_exp;
@@ -359,7 +365,7 @@ long double __divtf3(long double fa, long double fb)
     return f3_round(x_sgn, x_exp, x);
 }
 
-long double __extendsftf2(float f)
+TCC_EXPORT long double __extendsftf2(float f)
 {
     long double fx;
     u128_t x;
@@ -380,7 +386,7 @@ long double __extendsftf2(float f)
     return fx;
 }
 
-long double __extenddftf2(double f)
+TCC_EXPORT long double __extenddftf2(double f)
 {
     long double fx;
     u128_t x;
@@ -398,7 +404,7 @@ long double __extenddftf2(double f)
     return fx;
 }
 
-float __trunctfsf2(long double f)
+TCC_EXPORT float __trunctfsf2(long double f)
 {
     u128_t mnt;
     int32_t exp;
@@ -429,7 +435,7 @@ float __trunctfsf2(long double f)
     return fx;
 }
 
-double __trunctfdf2(long double f)
+TCC_EXPORT double __trunctfdf2(long double f)
 {
     u128_t mnt;
     int32_t exp;
@@ -461,7 +467,7 @@ double __trunctfdf2(long double f)
     return fx;
 }
 
-int32_t __fixtfsi(long double fa)
+TCC_EXPORT int32_t __fixtfsi(long double fa)
 {
     u128_t a;
     int32_t a_exp;
@@ -476,7 +482,7 @@ int32_t __fixtfsi(long double fa)
     return a_sgn ? -x : x;
 }
 
-int64_t __fixtfdi(long double fa)
+TCC_EXPORT int64_t __fixtfdi(long double fa)
 {
     u128_t a;
     int32_t a_exp;
@@ -491,7 +497,7 @@ int64_t __fixtfdi(long double fa)
     return a_sgn ? -x : x;
 }
 
-uint32_t __fixunstfsi(long double fa)
+TCC_EXPORT uint32_t __fixunstfsi(long double fa)
 {
     u128_t a;
     int32_t a_exp;
@@ -504,7 +510,7 @@ uint32_t __fixunstfsi(long double fa)
     return a.x1 >> (16431 - a_exp);
 }
 
-uint64_t __fixunstfdi(long double fa)
+TCC_EXPORT uint64_t __fixunstfdi(long double fa)
 {
     u128_t a;
     int32_t a_exp;
@@ -517,7 +523,7 @@ uint64_t __fixunstfdi(long double fa)
     return (a.x1 << 15 | a.x0 >> 49) >> (16446 - a_exp);
 }
 
-long double __floatsitf(int32_t a)
+TCC_EXPORT long double __floatsitf(int32_t a)
 {
     int sgn = 0;
     int exp = 16414;
@@ -542,7 +548,7 @@ long double __floatsitf(int32_t a)
     return f;
 }
 
-long double __floatditf(int64_t a)
+TCC_EXPORT long double __floatditf(int64_t a)
 {
     int sgn = 0;
     int exp = 16446;
@@ -567,7 +573,7 @@ long double __floatditf(int64_t a)
     return f;
 }
 
-long double __floatunsitf(uint32_t a)
+TCC_EXPORT long double __floatunsitf(uint32_t a)
 {
     int exp = 16414;
     uint32_t mnt = a;
@@ -586,7 +592,7 @@ long double __floatunsitf(uint32_t a)
     return f;
 }
 
-long double __floatunditf(uint64_t a)
+TCC_EXPORT long double __floatunditf(uint64_t a)
 {
     int exp = 16446;
     uint64_t mnt = a;
@@ -621,32 +627,61 @@ static int f3_cmp(long double fa, long double fb)
             b.x0 < a.x0 ? 1 - (int)(a.x1 >> 63 << 1) : 0);
 }
 
-int __eqtf2(long double a, long double b)
+TCC_EXPORT int __eqtf2(long double a, long double b)
 {
     return !!f3_cmp(a, b);
 }
 
-int __netf2(long double a, long double b)
+TCC_EXPORT int __netf2(long double a, long double b)
 {
     return !!f3_cmp(a, b);
 }
 
-int __lttf2(long double a, long double b)
+TCC_EXPORT int __lttf2(long double a, long double b)
 {
     return f3_cmp(a, b);
 }
 
-int __letf2(long double a, long double b)
+TCC_EXPORT int __letf2(long double a, long double b)
 {
     return f3_cmp(a, b);
 }
 
-int __gttf2(long double a, long double b)
+TCC_EXPORT int __gttf2(long double a, long double b)
 {
     return -f3_cmp(b, a);
 }
 
-int __getf2(long double a, long double b)
+TCC_EXPORT int __getf2(long double a, long double b)
 {
     return -f3_cmp(b, a);
 }
+
+#ifdef EMBEDDED_IN_R3
+const void * r3_libtcc1_symbols[] = {
+    SYM_FUNC(__addtf3),
+    SYM_FUNC(__subtf3),
+    SYM_FUNC(__multf3),
+    SYM_FUNC(__divtf3),
+    SYM_FUNC(__extendsftf2),
+    SYM_FUNC(__extenddftf2),
+    SYM_FUNC(__trunctfsf2),
+    SYM_FUNC(__trunctfdf2),
+    SYM_FUNC(__fixtfsi),
+    SYM_FUNC(__fixtfdi),
+    SYM_FUNC(__fixunstfsi),
+    SYM_FUNC(__fixunstfdi),
+    SYM_FUNC(__floatsitf),
+    SYM_FUNC(__floatditf),
+    SYM_FUNC(__floatunsitf),
+    SYM_FUNC(__floatunditf),
+    SYM_FUNC(__eqtf2),
+    SYM_FUNC(__netf2),
+    SYM_FUNC(__lttf2),
+    SYM_FUNC(__letf2),
+    SYM_FUNC(__gttf2),
+    SYM_FUNC(__getf2),
+    NULL, NULL //terminator
+};
+
+#endif

@@ -28,11 +28,7 @@ the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  
 */
 
-#ifdef EMBEDDED_IN_R3
-#define TCC_EXPORT static
-#else
-#define TCC_EXPORT
-#endif
+#include "r3.h"
 
 #include <stdint.h>
 
@@ -808,8 +804,6 @@ TCC_EXPORT void __clear_cache(void *beginning, void *end)
 #endif
 
 #ifdef EMBEDDED_IN_R3
-
-#define SYM_FUNC(x) #x, x
 extern void *r3_tcc_alloca(int);
 const void * r3_libtcc1_symbols[] = {
     "alloca", r3_tcc_alloca,
