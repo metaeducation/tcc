@@ -95,7 +95,7 @@ file(STRINGS "VERSION" TCC_VERSION)
 list(GET TCC_VERSION 0 TCC_VERSION)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 configure_file(config.h.in config.h)
-configure_file(config.texi.in config.texi)
+#configure_file(config.texi.in config.texi)
 
 # Utility variables
 set(I386_SOURCES i386-gen.c i386-asm.c i386-asm.h i386-tok.h)
@@ -280,7 +280,7 @@ make_tcc("" c67 TCC_BUILD_C67
 
 )
 
-add_subdirectory(tests)
+#add_subdirectory(tests)
 
 find_program(MAKEINFO NAMES makeinfo PATHS C:/MinGW/MSYS/1.0/bin)
 if(MAKEINFO)
