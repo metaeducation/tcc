@@ -100,7 +100,7 @@ configure_file(config.texi.in config.texi)
 # Utility variables
 set(I386_SOURCES i386-gen.c i386-asm.c i386-asm.h i386-tok.h)
 set(X86_64_SOURCES x86_64-gen.c i386-asm.c x86_64-asm.h)
-set(ARM_SOURCES arm_gen.c)
+set(ARM_SOURCES arm-gen.c)
 
 set(LIBTCC1_I386_SOURCES lib/alloca86.S lib/alloca86-bt.S)
 set(LIBTCC1_WIN_SOURCES win32/lib/crt1.c win32/lib/wincrt1.c win32/lib/dllcrt1.c win32/lib/dllmain.c win32/lib/chkstk.S)
