@@ -58,6 +58,7 @@
 
 #endif
 
+#if 0
 #ifdef _WIN32
 void dbg_printf (const char *fmt, ...)
 {
@@ -69,6 +70,7 @@ void dbg_printf (const char *fmt, ...)
     strcpy(buffer+x, "\n");
     OutputDebugString(buffer);
 }
+#endif
 #endif
 
 /* ----------------------------------------------------------- */
@@ -830,8 +832,6 @@ static void pe_build_imports(struct pe_info *pe)
                     if (dllref) {
                         if ( !dllref->handle )
                             dllref->handle = LoadLibrary(dllref->name);
-                        if ( !dllref->handle )
-                            tcc_error_noabort("can't load library '%s': error code %d", dllref->name, GetLastError());
                         v = (ADDR3264)GetProcAddress(dllref->handle, ordinal?(LPCSTR)NULL+ordinal:name);
                     }
                     if (!v)
@@ -1447,6 +1447,7 @@ static void pe_print_sections(TCCState *s1, const char *fname)
 /* ------------------------------------------------------------- */
 /* helper function for load/store to insert one more indirection */
 
+#ifndef TCC_TARGET_ARM
 ST_FUNC SValue *pe_getimport(SValue *sv, SValue *v2)
 {
     Sym *sym;
@@ -1486,6 +1487,7 @@ ST_FUNC SValue *pe_getimport(SValue *sv, SValue *v2)
     v2->r |= sv->r & VT_LVAL;
     return v2;
 }
+#endif
 
 ST_FUNC int pe_putimport(TCCState *s1, int dllindex, const char *name, addr_t value)
 {
@@ -1563,6 +1565,23 @@ static int pe_load_res(TCCState *s1, int fd)
     ret = 0;
 quit:
     return ret;
+}
+
+/* ------------------------------------------------------------- */
+
+static char *trimfront(char *p)
+{
+    while (*p && (unsigned char)*p <= ' ')
+	++p;
+    return p;
+}
+
+static char *trimback(char *a, char *e)
+{
+    while (e > a && (unsigned char)e[-1] <= ' ')
+	--e;
+    *e = 0;;
+    return a;
 }
 
 /* ------------------------------------------------------------- */
@@ -1647,8 +1666,8 @@ ST_FUNC int pe_load_file(struct TCCState *s1, const char *filename, int fd)
         ret = pe_load_def(s1, fd);
     else if (pe_load_res(s1, fd) == 0)
         ret = 0;
-    else if (read_mem(fd, 0, buf, sizeof buf) && 0 == strncmp(buf, "MZ", 2))
-        ret = pe_load_dll(s1, filename, fd);
+    else if (read_mem(fd, 0, buf, 4) && 0 == memcmp(buf, "MZ\220", 4))
+        ret = pe_load_dll(s1, tcc_basename(filename), fd);
     return ret;
 }
 
@@ -1795,8 +1814,8 @@ ST_FUNC int pe_output_file(TCCState * s1, const char *filename)
     pe.filename = filename;
     pe.s1 = s1;
 
-    pe_add_runtime(s1, &pe);
     tcc_add_bcheck(s1);
+    pe_add_runtime(s1, &pe);
     relocate_common_syms(); /* assign bss adresses */
     tcc_add_linker_symbols(s1);
 

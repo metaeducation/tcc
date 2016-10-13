@@ -92,7 +92,7 @@ static void help(void)
            "  -bench      show compilation statistics\n"
            "  -xc -xa     specify type of the next infile\n"
            "  -           use stdin pipe as infile\n"
-           "  @listfile   read line separated arguments from 'listfile'\n"
+           "  @listfile   read arguments from listfile\n"
            "Preprocessor options:\n"
            "  -Idir       add include path 'dir'\n"
            "  -Dsym[=val] define 'sym' with value 'val'\n"
@@ -223,9 +223,7 @@ static char *default_outputfile(TCCState *s, const char *first_file)
         strcpy(ext, ".exe");
     else
 #endif
-    if (( (s->output_type == TCC_OUTPUT_OBJ && !s->option_r) ||
-          (s->output_type == TCC_OUTPUT_PREPROCESS) )
-        && *ext)
+    if (s->output_type == TCC_OUTPUT_OBJ && !s->option_r && *ext)
         strcpy(ext, ".o");
     else
         strcpy(buf, "a.out");
@@ -247,25 +245,16 @@ static int64_t getclock_us(void)
 #endif
 }
 
-static void set_whole_archive(TCCState* s, int on)
-{
-    s->whole_archive = on;
-    if (1 == s->verbose)
-        printf("%cwhole-archive>\n", s->whole_archive? '+' : '-');
-}
-
 int main(int argc, char **argv)
 {
     TCCState *s;
     int ret, optind, i;
     int64_t start_time = 0;
+    const char *first_file = NULL;
 
     s = tcc_new();
 
     optind = tcc_parse_args(s, argc - 1, argv + 1);
-
-    if (s->do_bench)
-        start_time = getclock_us();
 
     tcc_set_environment(s);
 
@@ -280,96 +269,87 @@ int main(int argc, char **argv)
     if (s->verbose)
         display_info(s, 0);
 
-    if (s->print_search_dirs || (s->verbose == 2 && optind == 1)) {
-        tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
-        display_info(s, 1);
-        return 0;
-    }
-
-    if (s->verbose && optind == 1)
-        return 0;
-
-    if (s->nb_files == 0)
+    if (s->nb_files == 0) {
+        if (optind == 1) {
+            if (s->print_search_dirs || s->verbose == 2) {
+                tcc_set_output_type(s, TCC_OUTPUT_MEMORY);
+                display_info(s, 1);
+                return 1;
+            }
+            if (s->verbose)
+                return 1;
+        }
         tcc_error("no input files\n");
+    }
 
     /* check -c consistency : only single file handled. XXX: checks file type */
     if (s->output_type == TCC_OUTPUT_OBJ && !s->option_r) {
         if (s->nb_libraries != 0)
             tcc_error("cannot specify libraries with -c");
         /* accepts only a single input file */
-        if ((s->nb_files != 1) && s->outfile) {
-            tcc_error("cannot specify multiple files with -c and -o");
-        }
+        if (s->nb_files != 1)
+            tcc_error("cannot specify multiple files with -c");
     }
 
+    if (s->output_type == 0)
+        s->output_type = TCC_OUTPUT_EXE;
     tcc_set_output_type(s, s->output_type);
+
+    if (s->output_type == TCC_OUTPUT_PREPROCESS) {
+	if (!s->outfile) {
+	    s->ppfp = stdout;
+	} else {
+	    s->ppfp = fopen(s->outfile, "w");
+	    if (!s->ppfp)
+		tcc_error("could not write '%s'", s->outfile);
+	}
+    } else if (s->output_type != TCC_OUTPUT_OBJ) {
+	if (s->option_pthread)
+	    tcc_set_options(s, "-lpthread");
+    }
+
+    if (s->do_bench)
+        start_time = getclock_us();
 
     /* compile or add each files or library */
     for(i = ret = 0; i < s->nb_files && ret == 0; i++) {
-        int filetype = *(unsigned char *)s->files[i];
-        const char *filename = s->files[i] + 1;
-        if (filetype == TCC_FILETYPE_AR_WHOLE_ON ||
-            filetype == TCC_FILETYPE_AR_WHOLE_OFF)
-        {
-            set_whole_archive(s, filetype == TCC_FILETYPE_AR_WHOLE_ON);
-            continue;
-        }
-        if (1 == s->verbose)
-            printf("-> %s\n", filename);
-        if (filename[0] == '-' && filename[1] == 'l') {
-            if (tcc_add_library(s, filename + 2) < 0) {
-                /* don't fail on -lm as it's harmless to skip math lib */
-                if (strcmp(filename + 2, "m")) {
-                    tcc_error_noabort("cannot find library 'lib%s'", filename + 2);
-                    ret = 1;
-                }
-            }
-        } else {
-            if (!s->outfile)
-                s->outfile = default_outputfile(s, filename);
-            if (tcc_add_file(s, filename, filetype) < 0)
+        struct filespec *f = s->files[i];
+        if (f->type >= AFF_TYPE_LIB) {
+            s->alacarte_link = f->type == AFF_TYPE_LIB;
+            if (tcc_add_library_err(s, f->name) < 0)
                 ret = 1;
-            else
-            if (s->output_type == TCC_OUTPUT_OBJ) {
-                ret = !!tcc_output_file(s, s->outfile);
-                if (s->gen_deps && !ret)
-                    gen_makedeps(s, s->outfile, s->deps_outfile);
-                if (!ret) {
-                    if ((i+1) < s->nb_files) {
-                        tcc_delete(s);
-                        s = tcc_new();
-                        tcc_parse_args(s, argc - 1, argv + 1);
-                        tcc_set_environment(s);
-                        if (s->output_type != TCC_OUTPUT_OBJ)
-                            tcc_error("internal error");
-                        tcc_set_output_type(s, s->output_type);
-                    }
-                }
-            }
+        } else {
+            if (1 == s->verbose)
+                printf("-> %s\n", f->name);
+            s->filetype = f->type;
+            if (tcc_add_file(s, f->name) < 0)
+                ret = 1;
+            if (!first_file)
+                first_file = f->name;
         }
+        s->filetype = AFF_TYPE_NONE;
+        s->alacarte_link = 1;
     }
-    set_whole_archive(s, 0);
 
-    if (0 == ret) {
+    if (s->output_type == TCC_OUTPUT_PREPROCESS) {
+        if (s->outfile)
+            fclose(s->ppfp);
+
+    } else if (0 == ret) {
+        if (s->do_bench)
+            tcc_print_stats(s, getclock_us() - start_time);
         if (s->output_type == TCC_OUTPUT_MEMORY) {
 #ifdef TCC_IS_NATIVE
             ret = tcc_run(s, argc - 1 - optind, argv + 1 + optind);
-#else
-            tcc_error_noabort("-run is not available in a cross compiler");
-            ret = 1;
 #endif
-        } else
-        if (s->output_type == TCC_OUTPUT_EXE ||
-            s->output_type == TCC_OUTPUT_DLL)
-        {
+        } else {
+            if (!s->outfile)
+                s->outfile = default_outputfile(s, first_file);
             ret = !!tcc_output_file(s, s->outfile);
             if (s->gen_deps && !ret)
                 gen_makedeps(s, s->outfile, s->deps_outfile);
         }
     }
-
-    if (s->do_bench)
-        tcc_print_stats(s, getclock_us() - start_time);
 
     tcc_delete(s);
     return ret;

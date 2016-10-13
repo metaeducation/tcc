@@ -36,13 +36,6 @@
 #include <time.h>
 #include <sys/stat.h>          /* stat() */
 
-#ifdef CONFIG_TCCASSERT
-#include <assert.h>
-#define TCC_ASSERT(ex) assert(ex)
-#else
-#define TCC_ASSERT(ex)
-#endif
-
 #ifndef _WIN32
 # include <unistd.h>
 # include <sys/time.h>
@@ -83,6 +76,7 @@
 #  pragma warning (disable : 4018)  // signed/unsigned mismatch
 #  pragma warning (disable : 4146)  // unary minus operator applied to unsigned type, result still unsigned
 # endif
+# undef CONFIG_TCC_STATIC
 #endif
 
 #ifndef O_BINARY
@@ -101,7 +95,6 @@
 # define IS_DIRSEP(c) (c == '/' || c == '\\')
 # define IS_ABSPATH(p) (IS_DIRSEP(p[0]) || (p[0] && p[1] == ':' && IS_DIRSEP(p[2])))
 # define PATHCMP stricmp
-# define PATH_NOCASE
 #else
 # define IS_DIRSEP(c) (c == '/')
 # define IS_ABSPATH(p) IS_DIRSEP(p[0])
@@ -138,51 +131,6 @@
 
 #include "stab.h"
 #include "libtcc.h"
-
-static inline uint16_t read16le(unsigned char *p)
-{
-    return p[0] | (uint16_t)p[1] << 8;
-}
-
-static inline void write16le(unsigned char *p, uint16_t x)
-{
-    p[0] = x & 255;
-    p[1] = x >> 8 & 255;
-}
-
-static inline uint32_t read32le(unsigned char *p)
-{
-  return (p[0] | (uint32_t)p[1] << 8 |
-          (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24);
-}
-
-static inline void write32le(unsigned char *p, uint32_t x)
-{
-    p[0] = x & 255;
-    p[1] = x >> 8 & 255;
-    p[2] = x >> 16 & 255;
-    p[3] = x >> 24 & 255;
-}
-
-static inline uint64_t read64le(unsigned char *p)
-{
-  return (p[0] | (uint64_t)p[1] << 8 |
-          (uint64_t)p[2] << 16 | (uint64_t)p[3] << 24 |
-          (uint64_t)p[4] << 32 | (uint64_t)p[5] << 40 |
-          (uint64_t)p[6] << 48 | (uint64_t)p[7] << 56);
-}
-
-static inline void write64le(unsigned char *p, uint64_t x)
-{
-    p[0] = x & 255;
-    p[1] = x >> 8 & 255;
-    p[2] = x >> 16 & 255;
-    p[3] = x >> 24 & 255;
-    p[4] = x >> 32 & 255;
-    p[5] = x >> 40 & 255;
-    p[6] = x >> 48 & 255;
-    p[7] = x >> 56 & 255;
-}
 
 /* parser debug */
 /* #define PARSE_DEBUG */
@@ -334,6 +282,11 @@ static inline void write64le(unsigned char *p, uint64_t x)
 # define DEFAULT_ELFINTERP(s) default_elfinterp(s)
 #endif
 
+/* target specific subdir for libtcc1.a */
+#ifndef TCC_ARCH_DIR
+# define TCC_ARCH_DIR ""
+#endif
+
 /* library to use with CONFIG_USE_LIBGCC instead of libtcc1.a */
 #define TCC_LIBGCC USE_MUADIR(CONFIG_SYSROOT "/" CONFIG_LDDIR) "/libgcc_s.so.1"
 
@@ -371,12 +324,6 @@ static inline void write64le(unsigned char *p, uint64_t x)
 #define TOK_HASH_SIZE       16384 /* must be a power of two */
 #define TOK_ALLOC_INCR      512  /* must be a power of two */
 #define TOK_MAX_SIZE        4 /* token max size in int unit when stored in string */
-#define TOKSYM_TAL_SIZE     (768 * 1024) /* allocator for tiny TokenSym in table_ident */
-#define TOKSTR_TAL_SIZE     (768 * 1024) /* allocator for tiny TokenString instances */
-#define CSTR_TAL_SIZE       (256 * 1024) /* allocator for tiny CString instances */
-#define TOKSYM_TAL_LIMIT    256 /* prefer unique limits to distinguish allocators debug msgs */
-#define TOKSTR_TAL_LIMIT    128 /* 32 * sizeof(int) */
-#define CSTR_TAL_LIMIT      1024
 
 /* token symbol management */
 typedef struct TokenSym {
@@ -400,7 +347,6 @@ typedef struct CString {
     int size; /* size in bytes */
     void *data; /* either 'char *' or 'nwchar_t *' */
     int size_allocated;
-    void *data_allocated; /* if non NULL, data has been malloced */
 } CString;
 
 /* type definition */
@@ -418,7 +364,6 @@ typedef union CValue {
     struct {
         int size;
         const void *data;
-        void *data_allocated;
     } str;
     int tab[LDOUBLE_SIZE/4];
 } CValue;
@@ -602,11 +547,12 @@ typedef struct InlineFunc {
    inclusion if the include file is protected by #ifndef ... #endif */
 typedef struct CachedInclude {
     int ifndef_macro;
+    int once;
     int hash_next; /* -1 if none */
     char filename[1]; /* path specified in #include */
 } CachedInclude;
 
-#define CACHED_INCLUDES_HASH_SIZE 512
+#define CACHED_INCLUDES_HASH_SIZE 32
 
 #ifdef CONFIG_TCC_ASM
 typedef struct ExprValue {
@@ -638,50 +584,6 @@ struct sym_attr {
 #endif
 };
 
-typedef struct ParseArgsState
-{
-    int run;
-    int pthread;
-    int filetype;
-    CString linker_arg; /* collect -Wl options for input such as "-Wl,-rpath -Wl,<path>" */
-} ParseArgsState;
-
-#if !defined(MEM_DEBUG)
-#define tal_free(al, p) tal_free_impl(al, p)
-#define tal_realloc(al, p, size) tal_realloc_impl(&al, p, size)
-#define TAL_DEBUG_PARAMS
-#else
-#define TAL_DEBUG 1
-#define tal_free(al, p) tal_free_impl(al, p, __FILE__, __LINE__)
-#define tal_realloc(al, p, size) tal_realloc_impl(&al, p, size, __FILE__, __LINE__)
-#define TAL_DEBUG_PARAMS , const char *file, int line
-#define TAL_DEBUG_FILE_LEN 15
-#endif
-//#define TAL_INFO 1 /* collect and dump allocators stats */
-
-typedef struct TinyAlloc {
-    size_t  limit;
-    size_t  size;
-    uint8_t *buffer;
-    uint8_t *p;
-    size_t  nb_allocs;
-    struct TinyAlloc *next, *top;
-#ifdef TAL_INFO
-    size_t  nb_peak;
-    size_t  nb_total;
-    size_t  nb_missed;
-    uint8_t *peak_p;
-#endif
-} TinyAlloc;
-
-typedef struct tal_header_t {
-    size_t  size;
-#ifdef TAL_DEBUG
-    int     line_num; /* negative line_num used for double free check */
-    char    file_name[TAL_DEBUG_FILE_LEN + 1];
-#endif
-} tal_header_t;
-
 struct TCCState {
 
     int verbose; /* if true, display some information during compilation */
@@ -692,7 +594,6 @@ struct TCCState {
     int rdynamic; /* if true, all symbols are exported */
     int symbolic; /* if true, resolve symbols in the current module first */
     int alacarte_link; /* if true, only link in referenced objects from archive */
-    int whole_archive; /* if true, link in a whole *.a even when alacarte_link */
 
     char *tcc_lib_path; /* CONFIG_TCCDIR or -B option */
     char *soname; /* as specified on the command line (-soname) */
@@ -710,7 +611,6 @@ struct TCCState {
     int old_struct_init_code;	/* use old algorithm to init array in struct when there is no '{' used.
 				   Liuux 2.4.26 can't find initrd when compiled with a new algorithm */
     int dollars_in_identifiers;	/* allows '$' char in indentifiers */
-    int normalize_inc_dirs;	/* remove non-existent or duplicate directories from include paths */
 
     /* warning switches */
     int warn_write_strings;
@@ -721,7 +621,6 @@ struct TCCState {
 
     /* compile with debug symbol (and use them if error during execution) */
     int do_debug;
-    int do_strip;
 #ifdef CONFIG_TCC_BCHECK
     /* compile with built-in memory and bounds checker */
     int do_bounds_check;
@@ -851,9 +750,10 @@ struct TCCState {
 #endif
 
     /* used by main and tcc_parse_args only */
-    char **files; /* files seen on command line */
+    struct filespec **files; /* files seen on command line */
     int nb_files; /* number thereof */
     int nb_libraries; /* number of libs thereof */
+    int filetype;
     char *outfile; /* output filename */
     char *option_m; /* only -m32/-m64 handled */
     int print_search_dirs; /* option */
@@ -861,7 +761,11 @@ struct TCCState {
     int do_bench; /* option -bench */
     int gen_deps; /* option -MD  */
     char *deps_outfile; /* option -MF */
-    ParseArgsState *parse_args_state;
+    int option_pthread; /* -pthread option */
+};
+
+struct filespec {
+    char type, name[1];
 };
 
 /* The current value can be: */
@@ -1111,35 +1015,12 @@ enum tcc_token {
 #undef DEF
 };
 
+/* keywords: tok >= TOK_IDENT && tok < TOK_UIDENT */
 #define TOK_UIDENT TOK_DEFINE
 
-/* space exlcuding newline */
-static inline int is_space(int ch)
-{
-    return ch == ' ' || ch == '\t' || ch == '\v' || ch == '\f' || ch == '\r';
-}
+/* -------------------------------------------- */
 
-static inline int isid(int c)
-{
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
-}
-
-static inline int isnum(int c)
-{
-    return c >= '0' && c <= '9';
-}
-
-static inline int isoct(int c)
-{
-    return c >= '0' && c <= '7';
-}
-
-static inline int toup(int c)
-{
-    return (c >= 'a' && c <= 'z') ? c - 'a' + 'A' : c;
-}
-
-#ifndef PUB_FUNC
+#ifndef PUB_FUNC /* functions used by tcc.c but not in libtcc.h */
 # define PUB_FUNC
 #endif
 
@@ -1153,6 +1034,10 @@ static inline int toup(int c)
 #define ST_DATA extern
 #endif
 
+#ifdef TCC_PROFILE /* profile all functions */
+# define static
+#endif
+
 /* ------------ libtcc.c ------------ */
 
 /* use GNU C extensions */
@@ -1161,10 +1046,6 @@ ST_DATA int gnu_ext;
 ST_DATA int tcc_ext;
 /* XXX: get rid of this ASAP */
 ST_DATA struct TCCState *tcc_state;
-
-#define AFF_PRINT_ERROR     0x0001 /* print error if file not found */
-#define AFF_REFERENCED_DLL  0x0002 /* load a referenced dll from another dll */
-#define AFF_PREPROCESS      0x0004 /* preprocess file */
 
 /* public functions currently used by the tcc main function */
 PUB_FUNC char *pstrcpy(char *buf, int buf_size, const char *s);
@@ -1205,7 +1086,7 @@ PUB_FUNC void tcc_warning(const char *fmt, ...);
 /* other utilities */
 ST_FUNC void dynarray_add(void ***ptab, int *nb_ptr, void *data);
 ST_FUNC void dynarray_reset(void *pp, int *n);
-ST_FUNC void cstr_ccat(CString *cstr, int ch);
+ST_INLN void cstr_ccat(CString *cstr, int ch);
 ST_FUNC void cstr_cat(CString *cstr, const char *str, int len);
 ST_FUNC void cstr_wccat(CString *cstr, int ch);
 ST_FUNC void cstr_new(CString *cstr);
@@ -1236,7 +1117,26 @@ ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
 ST_FUNC void tcc_close(void);
 
-ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags, int filetype);
+ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags);
+/* flags: */
+#define AFF_PRINT_ERROR     0x10 /* print error if file not found */
+#define AFF_REFERENCED_DLL  0x20 /* load a referenced dll from another dll */
+#define AFF_PREPROCESS      0x40 /* preprocess file */
+/* combined with: */
+#define AFF_TYPE_NONE   0
+#define AFF_TYPE_C      1
+#define AFF_TYPE_ASM    2
+#define AFF_TYPE_ASMPP  3
+#define AFF_TYPE_BIN    4
+#define AFF_TYPE_LIB    5
+#define AFF_TYPE_LIBWH  6
+/* values from tcc_object_type(...) */
+#define AFF_BINTYPE_REL 1
+#define AFF_BINTYPE_DYN 2
+#define AFF_BINTYPE_AR  3
+#define AFF_BINTYPE_C67 4
+
+
 ST_FUNC int tcc_add_crt(TCCState *s, const char *filename);
 
 #ifndef TCC_TARGET_PE
@@ -1288,10 +1188,11 @@ ST_FUNC void end_macro(void);
 ST_FUNC void save_parse_state(ParseState *s);
 ST_FUNC void restore_parse_state(ParseState *s);
 ST_INLN void tok_str_new(TokenString *s);
+ST_FUNC TokenString *tok_str_alloc(void);
 ST_FUNC void tok_str_free(int *str);
 ST_FUNC void tok_str_add(TokenString *s, int t);
 ST_FUNC void tok_str_add_tok(TokenString *s);
-ST_INLN void define_push(int v, int macro_type, TokenString *str, Sym *first_arg);
+ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg);
 ST_FUNC void define_undef(Sym *s);
 ST_INLN Sym *define_find(int v);
 ST_FUNC void free_defines(Sym *b);
@@ -1309,8 +1210,23 @@ ST_FUNC void preprocess_delete(void);
 ST_FUNC int tcc_preprocess(TCCState *s1);
 ST_FUNC void skip(int c);
 ST_FUNC NORETURN void expect(const char *msg);
-ST_FUNC char *trimfront(char *p);
-ST_FUNC char *trimback(char *a, char *e);
+
+/* space exlcuding newline */
+static inline int is_space(int ch) {
+    return ch == ' ' || ch == '\t' || ch == '\v' || ch == '\f' || ch == '\r';
+}
+static inline int isid(int c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+static inline int isnum(int c) {
+    return c >= '0' && c <= '9';
+}
+static inline int isoct(int c) {
+    return c >= '0' && c <= '7';
+}
+static inline int toup(int c) {
+    return (c >= 'a' && c <= 'z') ? c - 'a' + 'A' : c;
+}
 
 /* ------------ tccgen.c ------------ */
 
@@ -1372,6 +1288,7 @@ ST_FUNC void lexpand_nr(void);
 #endif
 ST_FUNC void vpushv(SValue *v);
 ST_FUNC void save_reg(int r);
+ST_FUNC void save_reg_upstack(int r, int n);
 ST_FUNC int get_reg(int rc);
 ST_FUNC void save_regs(int n);
 ST_FUNC void gaddrof(void);
@@ -1436,6 +1353,7 @@ ST_FUNC void relocate_section(TCCState *s1, Section *s);
 ST_FUNC void relocate_plt(TCCState *s1);
 
 ST_FUNC void tcc_add_linker_symbols(TCCState *s1);
+ST_FUNC int tcc_object_type(int fd, ElfW(Ehdr) *h);
 ST_FUNC int tcc_load_object_file(TCCState *s1, int fd, unsigned long file_offset);
 ST_FUNC int tcc_load_archive(TCCState *s1, int fd);
 ST_FUNC void tcc_add_bcheck(TCCState *s1);
@@ -1472,6 +1390,11 @@ ST_FUNC void gfunc_epilog(void);
 ST_FUNC int gjmp(int t);
 ST_FUNC void gjmp_addr(int a);
 ST_FUNC int gtst(int inv, int t);
+#if defined TCC_TARGET_I386 || defined TCC_TARGET_X86_64
+ST_FUNC void gtst_addr(int inv, int a);
+#else
+#define gtst_addr(inv, a) gsym_addr(gtst(inv, 0), a)
+#endif
 ST_FUNC void gen_opi(int op);
 ST_FUNC void gen_opf(int op);
 ST_FUNC void gen_cvt_ftoi(int t);
@@ -1486,6 +1409,25 @@ ST_FUNC void gen_cvt_itof(int t);
 ST_FUNC void gen_vla_sp_save(int addr);
 ST_FUNC void gen_vla_sp_restore(int addr);
 ST_FUNC void gen_vla_alloc(CType *type, int align);
+
+static inline uint16_t read16le(unsigned char *p) {
+    return p[0] | (uint16_t)p[1] << 8;
+}
+static inline void write16le(unsigned char *p, uint16_t x) {
+    p[0] = x & 255, p[1] = x >> 8 & 255;
+}
+static inline uint32_t read32le(unsigned char *p) {
+  return read16le(p) | (uint32_t)read16le(p + 2) << 16;
+}
+static inline void write32le(unsigned char *p, uint32_t x) {
+    write16le(p, x), write16le(p + 2, x >> 16);
+}
+static inline uint64_t read64le(unsigned char *p) {
+  return read32le(p) | (uint64_t)read32le(p + 4) << 32;
+}
+static inline void write64le(unsigned char *p, uint64_t x) {
+    write32le(p, x), write32le(p + 4, x >> 32);
+}
 
 /* ------------ i386-gen.c ------------ */
 #if defined TCC_TARGET_I386 || defined TCC_TARGET_X86_64
@@ -1561,7 +1503,9 @@ ST_FUNC void asm_clobber(uint8_t *clobber_regs, const char *str);
 ST_FUNC int pe_load_file(struct TCCState *s1, const char *filename, int fd);
 ST_FUNC int pe_output_file(TCCState * s1, const char *filename);
 ST_FUNC int pe_putimport(TCCState *s1, int dllindex, const char *name, addr_t value);
+#ifndef TCC_TARGET_ARM
 ST_FUNC SValue *pe_getimport(SValue *sv, SValue *v2);
+#endif
 #ifdef TCC_TARGET_X86_64
 ST_FUNC void pe_add_unwind_data(unsigned start, unsigned end, unsigned stack);
 #endif
@@ -1582,9 +1526,7 @@ ST_FUNC void pe_add_unwind_data(unsigned start, unsigned end, unsigned stack);
 ST_FUNC void *dlopen(const char *filename, int flag);
 ST_FUNC void dlclose(void *p);
 ST_FUNC const char *dlerror(void);
-ST_FUNC void *resolve_sym(TCCState *s1, const char *symbol);
-#elif !defined _WIN32
-ST_FUNC void *resolve_sym(TCCState *s1, const char *symbol);
+ST_FUNC void *dlsym(int flag, const char *symbol);
 #endif
 
 #ifdef CONFIG_TCC_BACKTRACE
