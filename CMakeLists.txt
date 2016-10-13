@@ -252,6 +252,11 @@ make_tcc("" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
   "${ARM_SOURCES}"
   "" "" "" ""
 )
+make_tcc("ARM" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
+  "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT;TCC_ARM_VFP"
+  "${ARM_SOURCES}"
+  "" "lib/alloca-arm.S" "lib/alloca-arm.S" ""
+)
 make_tcc("" arm-linux-gnueabi TCC_BUILD_ARM_EABI
   "${ARM_DEFINITIONS};TCC_ARM_EABI"
   "${ARM_SOURCES}"
