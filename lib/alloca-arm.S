@@ -1,3 +1,6 @@
+#ifdef EMBEDDED_IN_R3
+#define alloca r3_tcc_alloca
+#endif
 	.text
 	.align	2
 	.global	alloca

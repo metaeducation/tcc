@@ -24,6 +24,8 @@ else()
     else()
       set(TCC_ARM_VERSION_DEFAULT 4)
     endif()
+  elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^aarch64")
+    set(TCC_NATIVE_TARGET "ARM64")
   elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(TCC_NATIVE_TARGET "x86_64")
     set(TCC_ARCH_DIR "x86_64-linux-gnu")
@@ -79,6 +81,7 @@ set(TCC_BUILD_ARM_VFP OFF CACHE BOOL "Build arm-vfp cross compiler")
 set(TCC_BUILD_ARM_EABI OFF CACHE BOOL "Build ARM EABI cross compiler")
 set(TCC_BUILD_ARM_EABIHF OFF CACHE BOOL "Build ARM EABI hardware float cross compiler")
 set(TCC_BUILD_ARM OFF CACHE BOOL "Build ARM cross compiler")
+set(TCC_BUILD_ARM64 OFF CACHE BOOL "Build ARM64 cross compiler")
 set(TCC_BUILD_C67 OFF CACHE BOOL "Build C67 cross compiler")
 set(TCC_EMBEDDED_IN_R3 ON CACHE BOOL "Build for being embedded in R3")
 
@@ -100,9 +103,13 @@ configure_file(config.h.in config.h)
 # Utility variables
 set(I386_SOURCES i386-gen.c i386-asm.c i386-asm.h i386-tok.h)
 set(X86_64_SOURCES x86_64-gen.c i386-asm.c x86_64-asm.h)
-set(ARM_SOURCES arm_gen.c)
+set(ARM_SOURCES arm-gen.c)
+set(ARM64_SOURCES arm64-gen.c)
 
-set(LIBTCC1_I386_SOURCES lib/alloca86.S lib/alloca86-bt.S)
+set(LIBTCC1_I386_SOURCES lib/libtcc1.c lib/alloca86.S lib/alloca86-bt.S)
+set(LIBTCC1_X86_64_SOURCES lib/libtcc1.c lib/alloca86_64.S)
+set(LIBTCC1_ARM_SOURCES lib/libtcc1.c lib/alloca-arm.S)
+set(LIBTCC1_ARM64_SOURCES lib/lib-arm64.c)
 set(LIBTCC1_WIN_SOURCES win32/lib/crt1.c win32/lib/wincrt1.c win32/lib/dllcrt1.c win32/lib/dllmain.c win32/lib/chkstk.S)
 if(NOT WIN32 AND NOT APPLE)
   set(LIBTCC1_I386_SOURCES ${LIBTCC1_I386_SOURCES} lib/bcheck.c)
@@ -129,7 +136,7 @@ macro(make_libtcc1 prefix xcc xar defs includes embedded_sources sources)
 	set(libtcc1_flags ${libtcc1_flags} -I${CMAKE_CURRENT_SOURCE_DIR}/${i})
   endforeach()
   set(libtcc1_objects)
-  foreach(libtcc1_c lib/libtcc1.c ${sources})
+  foreach(libtcc1_c ${sources})
     string(REGEX MATCH "[^/]+$" libtcc1_o ${libtcc1_c})
     string(REGEX MATCH "^[^.]+" libtcc1_o ${libtcc1_o})
     set(libtcc1_o ${libtcc1_prefix}${libtcc1_o}.o)
@@ -147,7 +154,7 @@ macro(make_libtcc1 prefix xcc xar defs includes embedded_sources sources)
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${libtcc1_prefix}libtcc1.a
     DESTINATION ${TCC_LIB_PATH}/${prefix} RENAME libtcc1.a)
 
-  add_library(r3_libtcc1 OBJECT lib/libtcc1.c ${embedded_sources})
+  add_library(r3_libtcc1 OBJECT ${embedded_sources})
   target_compile_definitions(r3_libtcc1 PUBLIC "EMBEDDED_IN_R3;${defs}")
 endmacro()
 
@@ -224,12 +231,12 @@ endif ()
 make_tcc("Win32" i386-w64-mingw32 TCC_BUILD_WIN32
   "TCC_TARGET_I386;TCC_TARGET_PE"
   "${I386_SOURCES};tccpe.c"
-  tiny_libmaker_32 "${EMBEDDED_LIBTCC1_X86_ASM}" "${LIBTCC1_I386_SOURCES};${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
+  tiny_libmaker_32 "lib/libtcc1.c;${EMBEDDED_LIBTCC1_X86_ASM}" "${LIBTCC1_I386_SOURCES};${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
 )
 make_tcc("Win64" x86_64-w64-mingw32 TCC_BUILD_WIN64
   "TCC_TARGET_X86_64;TCC_TARGET_PE"
   "${X86_64_SOURCES};tccpe.c"
-  tiny_libmaker_64 ${EMBEDDED_LIBTCC1_X86_64_ASM} "lib/alloca86_64.S;${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
+  tiny_libmaker_64 "lib/libtcc1.c;${EMBEDDED_LIBTCC1_X86_64_ASM}" "${LIBTCC1_X86_64_SOURCES};${LIBTCC1_WIN_SOURCES}" "win32/include;win32/include/winapi"
 )
 make_tcc("WinCE" arm-wince-mingw32ce TCC_BUILD_WINCE
   "TCC_TARGET_ARM;TCC_ARM_VERSION=${TCC_ARM_VERSION};TCC_TARGET_PE"
@@ -244,13 +251,23 @@ make_tcc("i386" i386-linux-gnu TCC_BUILD_I386
 make_tcc("x86_64" x86_64-linux-gnu TCC_BUILD_X64
   TCC_TARGET_X86_64
   "${X86_64_SOURCES}"
-  tiny_libmaker_64 "lib/alloca86_64.S" "lib/alloca86_64.S" ""
+  tiny_libmaker_64 "${LIBTCC1_X86_64_SOURCES}" "${LIBTCC1_X86_64_SOURCES}" ""
 )
 set(ARM_DEFINITIONS TCC_TARGET_ARM TCC_ARM_VERSION=${TCC_ARM_VERSION})
 make_tcc("" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
   "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT"
   "${ARM_SOURCES}"
   "" "" "" ""
+)
+make_tcc("ARM" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
+  "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT;TCC_ARM_VFP"
+  "${ARM_SOURCES}"
+  tiny_libmaker_32 "${LIBTCC1_ARM_SOURCES}" "${LIBTCC1_ARM_SOURCES}" ""
+)
+make_tcc("ARM64" aarch64-linux-gnueabihf TCC_BUILD_ARM64
+  "TCC_TARGET_ARM64"
+  "${ARM64_SOURCES}"
+  tiny_libmaker_64 "${LIBTCC1_ARM64_SOURCES}" "${LIBTCC1_ARM64_SOURCES}" ""
 )
 make_tcc("" arm-linux-gnueabi TCC_BUILD_ARM_EABI
   "${ARM_DEFINITIONS};TCC_ARM_EABI"
