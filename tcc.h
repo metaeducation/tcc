@@ -46,7 +46,14 @@
 # endif
 /* XXX: need to define this to use them in non ISOC99 context */
  extern float strtof (const char *__nptr, char **__endptr);
+#ifdef ANDROID
+/* bionic doesn't have strtold:
+ * https://lists.nongnu.org/archive/html/tinycc-devel/2013-09/msg00040.html
+ */
+#define strtold strtod
+#else
  extern long double strtold (const char *__nptr, char **__endptr);
+#endif
 #else /* on _WIN32: */
 # include <windows.h>
 # include <sys/timeb.h>
