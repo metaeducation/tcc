@@ -1,10 +1,8 @@
 project(tcc C)
 cmake_minimum_required(VERSION 2.6)
-enable_testing()
 
 # Detect native platform
 if(WIN32)
-  set(BUILD_SHARED_LIBS ON)
   if(CMAKE_SYSTEM_PROCESSOR STREQUAL "ARM")
     set(TCC_NATIVE_TARGET "WinCE")
   elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -98,7 +96,6 @@ file(STRINGS "VERSION" TCC_VERSION)
 list(GET TCC_VERSION 0 TCC_VERSION)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 configure_file(config.h.in config.h)
-#configure_file(config.texi.in config.texi)
 
 # Utility variables
 set(I386_SOURCES i386-gen.c i386-asm.c i386-asm.h i386-tok.h)
@@ -124,36 +121,6 @@ add_executable(tiny_libmaker_64 win32/tools/tiny_libmaker.c)
 set_target_properties(tiny_libmaker_64 PROPERTIES COMPILE_DEFINITIONS TCC_TARGET_X86_64)
 
 macro(make_libtcc1 prefix xcc xar defs includes embedded_sources sources)
-  set(libtcc1_prefix)
-  if("${prefix}" STRGREATER "")
-    set(libtcc1_prefix ${prefix}-)
-  endif()
-  set(libtcc1_flags -I${CMAKE_CURRENT_SOURCE_DIR}/include)
-  foreach(i ${defs})
-    set(libtcc1_flags ${libtcc1_flags} -D${i})
-  endforeach()
-  foreach(i ${includes})
-	set(libtcc1_flags ${libtcc1_flags} -I${CMAKE_CURRENT_SOURCE_DIR}/${i})
-  endforeach()
-  set(libtcc1_objects)
-  foreach(libtcc1_c ${sources})
-    string(REGEX MATCH "[^/]+$" libtcc1_o ${libtcc1_c})
-    string(REGEX MATCH "^[^.]+" libtcc1_o ${libtcc1_o})
-    set(libtcc1_o ${libtcc1_prefix}${libtcc1_o}.o)
-    add_custom_command(OUTPUT ${libtcc1_o}
-	  COMMAND ${xcc} ${libtcc1_flags} -c ${CMAKE_CURRENT_SOURCE_DIR}/${libtcc1_c} -o ${libtcc1_o}
-	  DEPENDS ${xcc} ${CMAKE_CURRENT_SOURCE_DIR}/${libtcc1_c}
-    )
-    list(APPEND libtcc1_objects ${libtcc1_o})
-  endforeach()
-  add_custom_command(OUTPUT ${libtcc1_prefix}libtcc1.a
-    COMMAND ${xar} ${libtcc1_prefix}libtcc1.a ${libtcc1_objects}
-    DEPENDS ${xar} ${libtcc1_objects}
-  )
-  add_custom_target(${libtcc1_prefix}libtcc1 ALL DEPENDS ${libtcc1_prefix}libtcc1.a)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/${libtcc1_prefix}libtcc1.a
-    DESTINATION ${TCC_LIB_PATH}/${prefix} RENAME libtcc1.a)
-
   add_library(r3_libtcc1 OBJECT ${embedded_sources})
   target_compile_definitions(r3_libtcc1 PUBLIC "EMBEDDED_IN_R3;${defs}")
 endmacro()
@@ -179,7 +146,7 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
     endif()
     
     if (TCC_BUILD_NATIVE)
-      add_library(libtcc STATIC
+      add_library(libtcc OBJECT
         libtcc.c
         tccpp.c
         tccgen.c
@@ -191,16 +158,10 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
         tcctok.h
         ${tcc_sources}
       )
-      set_target_properties(libtcc PROPERTIES OUTPUT_NAME tcc PREFIX lib)
-      if(WIN32)
-        set_target_properties(libtcc PROPERTIES LINK_FLAGS "-Wl,--output-def,libtcc.def")
-      endif()
-      add_executable(tcc tcc.c)
-      target_link_libraries(tcc libtcc)
+      add_executable(tcc tcc.c $<TARGET_OBJECTS:libtcc>)
       if(NOT WIN32)
         target_link_libraries(tcc dl)
       endif()
-      install(TARGETS tcc libtcc RUNTIME DESTINATION ${EXE_PATH} LIBRARY DESTINATION ${NATIVE_LIB_PATH} ARCHIVE DESTINATION ${NATIVE_LIB_PATH})
       set_target_properties(tcc libtcc PROPERTIES COMPILE_DEFINITIONS "${TCC_NATIVE_DEFINITIONS}")
       
       if("${libtcc_sources}" STRGREATER "")
@@ -210,7 +171,6 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
   elseif(${cross_enabled})
     add_executable(${cross_name}-tcc tcc.c)
     set_target_properties(${cross_name}-tcc PROPERTIES COMPILE_DEFINITIONS "ONE_SOURCE;${definitions}")
-    install(TARGETS ${cross_name}-tcc RUNTIME DESTINATION ${EXE_PATH})
     
     if("${libtcc_sources}" STRGREATER "")
       make_libtcc1(${cross_name} "${cross_name}-tcc" "${libtcc_ar}" "${definitions}" "${libtcc_includes}" "${libtcc_embedded_sources}" "${libtcc_sources}")
@@ -254,11 +214,6 @@ make_tcc("x86_64" x86_64-linux-gnu TCC_BUILD_X64
   tiny_libmaker_64 "${LIBTCC1_X86_64_SOURCES}" "${LIBTCC1_X86_64_SOURCES}" ""
 )
 set(ARM_DEFINITIONS TCC_TARGET_ARM TCC_ARM_VERSION=${TCC_ARM_VERSION})
-make_tcc("" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
-  "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT"
-  "${ARM_SOURCES}"
-  "" "" "" ""
-)
 make_tcc("ARM" arm-linux-gnueabihf TCC_BUILD_ARM_EABIHF
   "${ARM_DEFINITIONS};TCC_ARM_EABI;TCC_ARM_HARDFLOAT;TCC_ARM_VFP"
   "${ARM_SOURCES}"
@@ -296,43 +251,3 @@ make_tcc("" c67 TCC_BUILD_C67
   "" "" "" ""
 
 )
-
-#add_subdirectory(tests)
-
-find_program(MAKEINFO NAMES makeinfo PATHS C:/MinGW/MSYS/1.0/bin)
-if(MAKEINFO)
-  add_custom_command(OUTPUT tcc-doc.html
-    COMMAND ${MAKEINFO} --no-split --html -o tcc-doc.html ${CMAKE_CURRENT_SOURCE_DIR}/tcc-doc.texi
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tcc-doc.texi
-  )
-  set(TCC_DOC_FILES tcc-doc.html)
-  if(NOT WIN32)
-    add_custom_command(OUTPUT tcc-doc.info
-      COMMAND ${MAKEINFO} -o tcc-doc.info ${CMAKE_CURRENT_SOURCE_DIR}/tcc-doc.texi
-      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tcc-doc.texi
-    )
-    set(TCC_DOC_FILES ${TCC_DOC_FILES} tcc-doc.info)
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/tcc-doc.info DESTINATION share/info)
-  endif()
-  add_custom_target(tcc-doc ALL DEPENDS ${TCC_DOC_FILES})
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/tcc-doc.html DESTINATION ${DOC_PATH})
-endif()
-
-if(WIN32)
-  file(GLOB WIN32_DEFS win32/lib/*.def)
-  install(FILES ${WIN32_DEFS} DESTINATION lib)
-  install(FILES tcclib.h DESTINATION include)
-  install(DIRECTORY include/ DESTINATION include)
-  install(DIRECTORY win32/include/ DESTINATION include)
-  install(DIRECTORY win32/examples/ DESTINATION examples)
-  install(FILES win32/tcc-win32.txt DESTINATION doc)
-  install(FILES ${CMAKE_BINARY_DIR}/libtcc.def DESTINATION libtcc)
-  install(FILES ${CMAKE_BINARY_DIR}/libtcc.dll.a DESTINATION libtcc RENAME libtcc.a)
-  install(FILES libtcc.h DESTINATION libtcc)
-else()
-  install(FILES libtcc.h tcclib.h DESTINATION include)
-  install(DIRECTORY include/ DESTINATION lib/tcc/include)
-  install(DIRECTORY win32/include/ DESTINATION lib/tcc/win32/include)
-  install(DIRECTORY include/ DESTINATION lib/tcc/win32/include)
-endif()
-
