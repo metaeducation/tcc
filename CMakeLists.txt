@@ -171,10 +171,6 @@ macro(make_tcc native_name cross_name cross_enabled definitions tcc_sources libt
   elseif(${cross_enabled})
     add_executable(${cross_name}-tcc tcc.c)
     set_target_properties(${cross_name}-tcc PROPERTIES COMPILE_DEFINITIONS "ONE_SOURCE;${definitions}")
-    
-    if("${libtcc_sources}" STRGREATER "")
-      make_libtcc1(${cross_name} "${cross_name}-tcc" "${libtcc_ar}" "${definitions}" "${libtcc_includes}" "${libtcc_embedded_sources}" "${libtcc_sources}")
-    endif()
   endif()
 endmacro()
 
