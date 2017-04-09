@@ -5,6 +5,7 @@
 TOP ?= .
 include $(TOP)/config.mak
 VPATH = $(TOPSRC)
+CFLAGS += $(EXFLAGS)
 CFLAGS += -I$(TOP)
 
 ifeq (-$(findstring gcc,$(CC))-,-gcc-)
