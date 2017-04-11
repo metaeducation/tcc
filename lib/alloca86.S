@@ -2,7 +2,11 @@
 /* alloca86.S */
 
 #ifdef EMBEDDED_IN_R3
+#if defined(_WIN32) && defined(TCC_TARGET_I386)
+#define alloca _r3_tcc_alloca
+#else
 #define alloca r3_tcc_alloca
+#endif
 #endif
 
 .globl alloca
