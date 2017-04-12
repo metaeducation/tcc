@@ -9,11 +9,11 @@ T = $(or $(CROSS_TARGET),$(NATIVE_TARGET),unknown)
 X = $(if $(CROSS_TARGET),$(CROSS_TARGET)-)
 
 TCC = $(TOP)/$(X)tcc$(EXESUF)
-XCC = $(TCC)
-XAR = $(TCC) -ar
+XCC ?= $(TCC)
+XAR ?= $(TCC) -ar
 XFLAGS-unx = -B$(TOPSRC)
 XFLAGS-win = -B$(TOPSRC)/win32 -I$(TOPSRC)/include
-XFLAGS = $(XFLAGS$(XCFG))
+XFLAGS = $(XFLAGS$(XCFG)) $(CFLAGS)
 XCFG = $(or $(findstring -win,$T),-unx)
 
 ifeq ($(X),)
