@@ -1,14 +1,7 @@
 TOP = ../..
-include $(TOP)/config.mak
+include $(TOP)/Makefile
 SRC = $(TOPSRC)/tests/tests2
 VPATH = $(SRC)
-
-# run local version of tcc with local libraries and includes
-TCCFLAGS = -B$(TOP) -I$(TOPSRC)/include
-ifdef CONFIG_WIN32
- TCCFLAGS = -B$(TOPSRC)/win32 -I$(TOPSRC)/include -L$(TOP)
-endif
-TCC = $(TOP)/tcc $(TCCFLAGS)
 
 TESTS = $(patsubst %.c,%.test,$(sort $(notdir $(wildcard $(SRC)/*.c))))
 
@@ -22,11 +15,11 @@ endif
 ifeq ($(TARGETOS),Darwin)
  SKIP += 40_stdio.test
 endif
-ifeq ($(ARCH),x86-64)
+ifeq ($(ARCH),x86_64)
  SKIP += 73_arm64.test
 endif
-ifeq (,$(filter i386 x86-64,$(ARCH)))
- SKIP += 85-asm-outside-function.test
+ifeq (,$(filter i386 x86_64,$(ARCH)))
+ SKIP += 85_asm-outside-function.test
 endif
 
 # Some tests might need arguments
@@ -34,8 +27,13 @@ ARGS =
 31_args.test : ARGS = arg1 arg2 arg3 arg4 arg5
 46_grep.test : ARGS = '[^* ]*[:a:d: ]+\:\*-/: $$' $(SRC)/46_grep.c
 
+# And some tests don't test the right thing with -run
+NORUN =
+42_function_pointer.test : NORUN = true
+
 # Some tests might need different flags
-76_dollars_in_identifiers.test : TCCFLAGS += -fdollars-in-identifiers
+FLAGS =
+76_dollars_in_identifiers.test : FLAGS += -fdollars-in-identifiers
 
 # Filter source directory in warnings/errors (out-of-tree builds)
 FILTER = 2>&1 | sed 's,$(SRC)/,,g'
@@ -49,12 +47,17 @@ all test: $(filter-out $(SKIP),$(TESTS))
 %.test: %.c %.expect
 	@echo Test: $*...
 # test -run
-	@$(TCC) -run $< $(ARGS) $(FILTER) >$*.output 2>&1 || true
-	@diff -Nbu $(SRC)/$*.expect $*.output && rm -f $*.output
+	@if test -z "$(NORUN)"; then \
+	    $(TCC) $(FLAGS) -run $< $(ARGS) $(FILTER) >$*.output 2>&1 || true; \
+	  else \
+	    $(TCC) $(FLAGS) $< -o ./$*.exe $(FILTER) >$*.output 2>&1; \
+	    ./$*.exe $(ARGS) >>$*.output 2>&1 || true; \
+	  fi
+	@diff -Nbu $(SRC)/$*.expect $*.output && rm -f $*.output $*.exe
 
 # automatically generate .expect files with gcc:
-%.expect :
-	(gcc $*.c -o a.exe && ./a.exe $(ARGS)) >$*.expect 2>&1; rm -f a.exe
+%.expect : # %.c
+	(gcc -w $*.c -o a.exe && ./a.exe $(ARGS)) $(FILTER) >$*.expect 2>&1; rm -f a.exe
 
 # tell make not to delete
 .PRECIOUS: %.expect

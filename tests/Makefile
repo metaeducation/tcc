@@ -5,7 +5,7 @@
 TOP = ..
 include $(TOP)/Makefile
 VPATH = $(TOPSRC)/tests $(TOPSRC) $(TOP)
-CFLAGS = -I$(TOPSRC) -I$(TOP)
+CFLAGS := $(filter-out -W% -g% -O%,$(CFLAGS)) -I$(TOPSRC)
 
 # what tests to run
 TESTS = \
@@ -13,8 +13,11 @@ TESTS = \
  hello-run \
  libtest \
  test3 \
+ memtest \
+ dlltest \
  abitest \
  vla_test-run \
+ cross-test \
  tests2-dir \
  pp-dir
 
@@ -34,28 +37,30 @@ endif
 ifeq ($(TARGETOS),Darwin)
  TESTS := $(filter-out hello-exe test3 $(BTESTS),$(TESTS))
 endif
-ifeq (,$(filter arm64 i386 x86-64,$(ARCH)))
+ifeq (,$(filter arm64 i386 x86_64,$(ARCH)))
  TESTS := $(filter-out vla_test-run,$(TESTS))
 endif
 ifeq ($(CONFIG_arm_eabi),yes)
  TESTS := $(filter-out test3,$(TESTS))
 endif
-
-# run local version of tcc with local libraries and includes
-TCCFLAGS = -B$(TOP) -I$(TOPSRC)/include -I$(TOPSRC) -I$(TOP)
-ifdef CONFIG_WIN32
- TCCFLAGS = -B$(TOPSRC)/win32 -I$(TOPSRC)/include -I$(TOPSRC) -I$(TOP) -L$(TOP)
- PATH := $(CURDIR)/$(TOP):$(PATH) # for libtcc_test to find libtcc.dll
+ifeq (,$(filter i386 x86_64,$(ARCH)))
+ TESTS := $(filter-out dlltest,$(TESTS))
+endif
+ifndef CONFIG_CROSS
+ TESTS := $(filter-out cross-%,$(TESTS))
 endif
 
-TCC = $(TOP)/tcc $(TCCFLAGS)
-RUN_TCC = $(NATIVE_DEFINES) -DONE_SOURCE -run $(TOPSRC)/tcc.c $(TCCFLAGS)
+ifdef CONFIG_WIN32
+ PATH := $(CURDIR)/$(TOP):$(PATH) # for libtcc_test to find libtcc.dll
+endif
 
 ifeq ($(TARGETOS),Darwin)
  CFLAGS += -Wl,-flat_namespace,-undefined,warning
  TCCFLAGS += -D_ANSI_SOURCE
  export MACOSX_DEPLOYMENT_TARGET:=10.2
 endif
+
+RUN_TCC = $(NATIVE_DEFINES) -DONE_SOURCE -run $(TOPSRC)/tcc.c $(TCCFLAGS)
 
 DISAS = objdump -d
 
@@ -126,6 +131,28 @@ test4: tcctest.c test.ref
 	./tcctest2 > test2.out
 	@if diff -u test.ref test2.out ; then echo "Static Auto Test OK"; fi
 
+# use tcc to create libtcc.so/.dll and the tcc(.exe) frontend and run them
+dlltest:
+	@echo ------------ $@ ------------
+	$(TCC) -DONE_SOURCE $(NATIVE_DEFINES) -DLIBTCC_AS_DLL $(TOPSRC)/libtcc.c $(LIBS) -shared -o libtcc2$(DLLSUF)
+	$(TCC) $(NATIVE_DEFINES) $(TOPSRC)/tcc.c libtcc2$(DLLSUF) $(LIBS) -Wl,-rpath=. -o tcc2$(EXESUF)
+	./tcc2$(EXESUF) $(TCCFLAGS) $(RUN_TCC) -run $(TOPSRC)/examples/ex1.c
+ifndef CONFIG_WIN32
+	@echo ------------ $@ with PIC ------------
+	$(CC) $(CFLAGS) -fPIC -DONE_SOURCE $(NATIVE_DEFINES) -DLIBTCC_AS_DLL -c $(TOPSRC)/libtcc.c
+	$(TCC) libtcc.o $(LIBS) -shared -o libtcc2$(DLLSUF)
+	$(TCC) $(NATIVE_DEFINES) $(TOPSRC)/tcc.c libtcc2$(DLLSUF) $(LIBS) -Wl,-rpath=. -o tcc2$(EXESUF)
+	./tcc2$(EXESUF) $(TCCFLAGS) $(RUN_TCC) -run $(TOPSRC)/examples/ex1.c
+endif
+	@rm tcc2$(EXESUF) libtcc2$(DLLSUF)
+
+memtest:
+	@echo ------------ $@ ------------
+	$(CC) $(CFLAGS) $(NATIVE_DEFINES) -DONE_SOURCE -DMEM_DEBUG=2 $(TOPSRC)/tcc.c $(LIBS) -o memtest-tcc$(EXESUF)
+	./memtest-tcc$(EXESUF) $(TCCFLAGS) $(NATIVE_DEFINES) -DONE_SOURCE $(TOPSRC)/tcc.c $(LIBS)
+	./memtest-tcc$(EXESUF) $(TCCFLAGS) $(NATIVE_DEFINES) -DONE_SOURCE -run $(TOPSRC)/tcc.c $(TCCFLAGS) $(TOPSRC)/tests/tcctest.c
+
+
 # memory and bound check auto test
 BOUNDS_OK  = 1 4 8 10 14
 BOUNDS_FAIL= 2 5 7 9 11 12 13 15
@@ -160,7 +187,7 @@ speedtest: ex2 ex3
 
 weaktest: tcctest.c test.ref
 	$(TCC) -c $< -o weaktest.tcc.o
-	$(CC) -c $< -o weaktest.gcc.o -I. $(CFLAGS)
+	$(CC) -c $< -o weaktest.gcc.o $(NATIVE_DEFINES) $(CFLAGS) -w -O0 -std=gnu99 -fno-omit-frame-pointer
 	objdump -t weaktest.tcc.o | grep ' w ' | sed -e 's/.* \([a-zA-Z0-9_]*\)$$/\1/' | LC_ALL=C sort > weaktest.tcc.o.txt
 	objdump -t weaktest.gcc.o | grep ' w ' | sed -e 's/.* \([a-zA-Z0-9_]*\)$$/\1/' | LC_ALL=C sort > weaktest.gcc.o.txt
 	diff weaktest.gcc.o.txt weaktest.tcc.o.txt && echo "Weak Auto Test OK"
@@ -209,6 +236,16 @@ vla_test-run: vla_test$(EXESUF)
 	@echo ------------ $@ ------------
 	./vla_test$(EXESUF)
 
+cross-test :
+	@echo ------------ $@ ------------
+	$(TOP)/i386-tcc$(EXESUF) $(TCCFLAGS-unx) -c $(TOPSRC)/examples/ex3.c && echo "ok"
+	$(TOP)/x86_64-tcc$(EXESUF) $(TCCFLAGS-unx) -c $(TOPSRC)/examples/ex3.c && echo "ok"
+	$(TOP)/arm-tcc$(EXESUF) $(TCCFLAGS-unx) -c $(TOPSRC)/examples/ex3.c && echo "ok"
+	$(TOP)/c67-tcc$(EXESUF) $(TCCFLAGS-unx) -c $(TOPSRC)/examples/ex3.c && echo "ok"
+	$(TOP)/i386-win32-tcc$(EXESUF) $(TCCFLAGS-win) $(TOPSRC)/win32/examples/hello_win.c && echo "ok"
+	$(TOP)/x86_64-win32-tcc$(EXESUF) $(TCCFLAGS-win) $(TOPSRC)/win32/examples/hello_win.c && echo "ok"
+	$(TOP)/arm-wince-tcc$(EXESUF) $(TCCFLAGS-win) -c $(TOPSRC)/win32/examples/hello_win.c && echo "ok"
+
 # targets for development
 %.bin: %.c tcc
 	$(TCC) -g -o $@ $<
@@ -227,7 +264,8 @@ cache: tcc_g
 # clean
 clean:
 	rm -f *~ *.o *.a *.bin *.i *.ref *.out *.out? *.out?b *.cc *.gcc \
-*-cc *-gcc *-tcc *.exe hello libtcc_test vla_test tcctest[1234] ex? tcc_g
+	      *-cc *-gcc *-tcc *.exe hello libtcc_test vla_test tcctest[1234] \
+	      ex? tcc_g *.def weaktest.*.txt
 	$(MAKE) -C tests2 $@
 	$(MAKE) -C pp $@
 

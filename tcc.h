@@ -30,17 +30,13 @@
 #include <string.h>
 #include <errno.h>
 #include <math.h>
-#include <signal.h>
 #include <fcntl.h>
 #include <setjmp.h>
 #include <time.h>
-#include <sys/stat.h>          /* stat() */
 
 #ifndef _WIN32
 # include <unistd.h>
 # include <sys/time.h>
-# include <sys/ucontext.h>
-# include <sys/mman.h>
 # ifndef CONFIG_TCC_STATIC
 #  include <dlfcn.h>
 # endif
@@ -54,16 +50,16 @@
 #else
  extern long double strtold (const char *__nptr, char **__endptr);
 #endif
+
 #else /* on _WIN32: */
 # include <windows.h>
-# include <sys/timeb.h>
 # include <io.h> /* open, close etc. */
 # include <direct.h> /* getcwd */
 # ifdef __GNUC__
 #  include <stdint.h>
 # endif
 # define inline __inline
-# define inp next_inp
+# define inp next_inp /* inp is an intrinsic on msvc */
 # define snprintf _snprintf
 # define vsnprintf _vsnprintf
 # ifndef __GNUC__
@@ -82,6 +78,10 @@
 #  pragma warning (disable : 4996)  // The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name
 #  pragma warning (disable : 4018)  // signed/unsigned mismatch
 #  pragma warning (disable : 4146)  // unary minus operator applied to unsigned type, result still unsigned
+#  define ssize_t intptr_t
+#  define __attribute__(x) __declspec x
+#  define aligned align
+# else
 # endif
 # undef CONFIG_TCC_STATIC
 #endif
@@ -114,30 +114,7 @@
 #define PATHSEP ':'
 #endif
 
-#include "elf.h"
-#if defined(TCC_TARGET_ARM64) || defined(TCC_TARGET_X86_64)
-# define ELFCLASSW ELFCLASS64
-# define ElfW(type) Elf##64##_##type
-# define ELFW(type) ELF##64##_##type
-# define ElfW_Rel ElfW(Rela)
-# define SHT_RELX SHT_RELA
-# define REL_SECTION_FMT ".rela%s"
-/* XXX: DLL with PLT would only work with x86-64 for now */
-# define TCC_OUTPUT_DLL_WITH_PLT
-#else
-# define ELFCLASSW ELFCLASS32
-# define ElfW(type) Elf##32##_##type
-# define ELFW(type) ELF##32##_##type
-# define ElfW_Rel ElfW(Rel)
-# define SHT_RELX SHT_REL
-# define REL_SECTION_FMT ".rel%s"
-#endif
-
-/* target address type */
-#define addr_t ElfW(Addr)
-
-#include "stab.h"
-#include "libtcc.h"
+/* -------------------------------------------- */
 
 /* parser debug */
 /* #define PARSE_DEBUG */
@@ -207,24 +184,19 @@
 # define CONFIG_TCCDIR "."
 #endif
 #ifndef CONFIG_LDDIR
-# ifdef TCC_TARGET_X86_64
-#   define CONFIG_LDDIR "lib64"
-# else
-#   define CONFIG_LDDIR "lib"
-# endif
+# define CONFIG_LDDIR "lib"
 #endif
-
-#ifdef CONFIG_MULTIARCHDIR
-# define USE_MUADIR(s) s "/" CONFIG_MULTIARCHDIR
-# define ALSO_MUADIR(s) s "/" CONFIG_MULTIARCHDIR ":" s
+#ifdef CONFIG_TRIPLET
+# define USE_TRIPLET(s) s "/" CONFIG_TRIPLET
+# define ALSO_TRIPLET(s) USE_TRIPLET(s) ":" s
 #else
-# define USE_MUADIR(s) s
-# define ALSO_MUADIR(s) s
+# define USE_TRIPLET(s) s
+# define ALSO_TRIPLET(s) s
 #endif
 
 /* path to find crt1.o, crti.o and crtn.o */
 #ifndef CONFIG_TCC_CRTPREFIX
-# define CONFIG_TCC_CRTPREFIX USE_MUADIR(CONFIG_SYSROOT "/usr/" CONFIG_LDDIR)
+# define CONFIG_TCC_CRTPREFIX USE_TRIPLET(CONFIG_SYSROOT "/usr/" CONFIG_LDDIR)
 #endif
 
 /* Below: {B} is substituted by CONFIG_TCCDIR (rsp. -B option) */
@@ -236,8 +208,8 @@
 # else
 #  define CONFIG_TCC_SYSINCLUDEPATHS \
         "{B}/include" \
-    ":" ALSO_MUADIR(CONFIG_SYSROOT "/usr/local/include") \
-    ":" ALSO_MUADIR(CONFIG_SYSROOT "/usr/include")
+    ":" ALSO_TRIPLET(CONFIG_SYSROOT "/usr/local/include") \
+    ":" ALSO_TRIPLET(CONFIG_SYSROOT "/usr/include")
 # endif
 #endif
 
@@ -247,9 +219,9 @@
 #  define CONFIG_TCC_LIBPATHS "{B}/lib"
 # else
 #  define CONFIG_TCC_LIBPATHS \
-        ALSO_MUADIR(CONFIG_SYSROOT "/usr/" CONFIG_LDDIR) \
-    ":" ALSO_MUADIR(CONFIG_SYSROOT "/" CONFIG_LDDIR) \
-    ":" ALSO_MUADIR(CONFIG_SYSROOT "/usr/local/" CONFIG_LDDIR)
+        ALSO_TRIPLET(CONFIG_SYSROOT "/usr/" CONFIG_LDDIR) \
+    ":" ALSO_TRIPLET(CONFIG_SYSROOT "/" CONFIG_LDDIR) \
+    ":" ALSO_TRIPLET(CONFIG_SYSROOT "/usr/local/" CONFIG_LDDIR)
 # endif
 #endif
 
@@ -289,13 +261,59 @@
 # define DEFAULT_ELFINTERP(s) default_elfinterp(s)
 #endif
 
-/* target specific subdir for libtcc1.a */
-#ifndef TCC_ARCH_DIR
-# define TCC_ARCH_DIR ""
+/* (target specific) libtcc1.a */
+#ifndef TCC_LIBTCC1
+# define TCC_LIBTCC1 "libtcc1.a"
 #endif
 
 /* library to use with CONFIG_USE_LIBGCC instead of libtcc1.a */
-#define TCC_LIBGCC USE_MUADIR(CONFIG_SYSROOT "/" CONFIG_LDDIR) "/libgcc_s.so.1"
+#if defined CONFIG_USE_LIBGCC && !defined TCC_LIBGCC
+#define TCC_LIBGCC USE_TRIPLET(CONFIG_SYSROOT "/" CONFIG_LDDIR) "/libgcc_s.so.1"
+#endif
+
+/* -------------------------------------------- */
+
+#include "libtcc.h"
+#include "elf.h"
+#include "stab.h"
+
+#if defined(TCC_TARGET_ARM64) || defined(TCC_TARGET_X86_64)
+# define ELFCLASSW ELFCLASS64
+# define ElfW(type) Elf##64##_##type
+# define ELFW(type) ELF##64##_##type
+# define ElfW_Rel ElfW(Rela)
+# define SHT_RELX SHT_RELA
+# define REL_SECTION_FMT ".rela%s"
+#else
+# define ELFCLASSW ELFCLASS32
+# define ElfW(type) Elf##32##_##type
+# define ELFW(type) ELF##32##_##type
+# define ElfW_Rel ElfW(Rel)
+# define SHT_RELX SHT_REL
+# define REL_SECTION_FMT ".rel%s"
+#endif
+/* target address type */
+#define addr_t ElfW(Addr)
+
+/* -------------------------------------------- */
+
+#ifndef PUB_FUNC /* functions used by tcc.c but not in libtcc.h */
+# define PUB_FUNC
+#endif
+
+#ifdef ONE_SOURCE
+#define ST_INLN static inline
+#define ST_FUNC static
+#define ST_DATA static
+#else
+#define ST_INLN
+#define ST_FUNC
+#define ST_DATA extern
+#endif
+
+#ifdef TCC_PROFILE /* profile all functions */
+# define static
+#endif
 
 /* -------------------------------------------- */
 /* include the target specific definitions */
@@ -303,19 +321,24 @@
 #define TARGET_DEFS_ONLY
 #ifdef TCC_TARGET_I386
 # include "i386-gen.c"
+# include "i386-link.c"
 #endif
 #ifdef TCC_TARGET_X86_64
 # include "x86_64-gen.c"
+# include "x86_64-link.c"
 #endif
 #ifdef TCC_TARGET_ARM
 # include "arm-gen.c"
+# include "arm-link.c"
 #endif
 #ifdef TCC_TARGET_ARM64
 # include "arm64-gen.c"
+# include "arm64-link.c"
 #endif
 #ifdef TCC_TARGET_C67
 # include "coff.h"
 # include "c67-gen.c"
+# include "c67-link.c"
 #endif
 #undef TARGET_DEFS_ONLY
 
@@ -382,22 +405,24 @@ typedef struct SValue {
     unsigned short r2;     /* second register, used for 'long long'
                               type. If not used, set to VT_CONST */
     CValue c;              /* constant, if VT_CONST */
-    struct Sym *sym;       /* symbol, if (VT_SYM | VT_CONST) */
+    struct Sym *sym;       /* symbol, if (VT_SYM | VT_CONST), or if
+    			      result of unary() for an identifier. */
 } SValue;
 
 struct Attribute {
     unsigned
         func_call     : 3, /* calling convention (0..5), see below */
-        aligned       : 5, /* alignement (0..16) */
+        aligned       : 5, /* alignment as log2+1 (0 == unspecified) */
         packed        : 1,
         func_export   : 1,
         func_import   : 1,
         func_args     : 5,
-        func_proto    : 1,
+        func_body     : 1,
         mode          : 4,
         weak          : 1,
         visibility    : 2,
-        fill          : 8; // 8 bits left to fit well in union below
+	unsigned_enum : 1,
+        fill          : 7; // 7 bits left to fit well in union below
 };
 
 /* GNUC attribute definition */
@@ -416,7 +441,7 @@ typedef struct Sym {
         int scope;  /* scope level for locals */
     };
     union {
-        long r;    /* associated register */
+        long r;    /* associated register or VT_CONST/VT_LOCAL and LVAL type */
         struct Attribute a;
     };
     union {
@@ -425,7 +450,7 @@ typedef struct Sym {
     };
     CType type;    /* associated type */
     union {
-        struct Sym *next; /* next related symbol */
+        struct Sym *next; /* next related symbol (for fields and anoms) */
         long jnext; /* next jump label */
     };
     struct Sym *prev; /* prev symbol in stack */
@@ -440,6 +465,7 @@ typedef struct Sym {
 
 /* special flag, too */
 #define SECTION_ABS ((void *)1)
+#define SECTION_COMMON ((void *)2)
 
 typedef struct Section {
     unsigned long data_offset; /* current data offset */
@@ -458,8 +484,8 @@ typedef struct Section {
     int nb_hashed_syms;      /* used to resize the hash table */
     struct Section *link;    /* link to another section */
     struct Section *reloc;   /* corresponding section for relocation, if any */
-    struct Section *hash;     /* hash table for symbols */
-    struct Section *next;
+    struct Section *hash;    /* hash table for symbols */
+    struct Section *prev;    /* previous section on section stack */
     char name[1];           /* section name */
 } Section;
 
@@ -545,7 +571,7 @@ typedef struct TokenString {
 
 /* inline functions */
 typedef struct InlineFunc {
-    TokenString func_str;
+    TokenString *func_str;
     Sym *sym;
     char filename[1];
 } InlineFunc;
@@ -565,6 +591,7 @@ typedef struct CachedInclude {
 typedef struct ExprValue {
     uint64_t v;
     Sym *sym;
+    int pcrel;
 } ExprValue;
 
 #define MAX_ASM_OPERANDS 30
@@ -583,9 +610,12 @@ typedef struct ASMOperand {
 } ASMOperand;
 #endif
 
+/* extra symbol attributes (not in symbol table) */
 struct sym_attr {
-    unsigned long got_offset;
-    unsigned long plt_offset;
+    unsigned got_offset;
+    unsigned plt_offset;
+    int plt_sym;
+    int dyn_index;
 #ifdef TCC_TARGET_ARM
     unsigned char plt_thumb_stub:1;
 #endif
@@ -605,6 +635,7 @@ struct TCCState {
     char *tcc_lib_path; /* CONFIG_TCCDIR or -B option */
     char *soname; /* as specified on the command line (-soname) */
     char *rpath; /* as specified on the command line (-Wl,-rpath=) */
+    int enable_new_dtags; /* ditto, (-Wl,--enable-new-dtags) */
 
     /* output type, see TCC_OUTPUT_XXX */
     int output_type;
@@ -614,10 +645,9 @@ struct TCCState {
     /* C language options */
     int char_is_unsigned;
     int leading_underscore;
-    int ms_extensions;		/* allow nested named struct w/o identifier behave like unnamed */
-    int old_struct_init_code;	/* use old algorithm to init array in struct when there is no '{' used.
-				   Liuux 2.4.26 can't find initrd when compiled with a new algorithm */
+    int ms_extensions;	/* allow nested named struct w/o identifier behave like unnamed */
     int dollars_in_identifiers;	/* allows '$' char in indentifiers */
+    int ms_bitfields; /* if true, emulate MS algorithm for aligning bitfields */
 
     /* warning switches */
     int warn_write_strings;
@@ -639,13 +669,16 @@ struct TCCState {
     addr_t text_addr; /* address of text section */
     int has_text_addr;
 
-    unsigned long section_align; /* section alignment */
+    unsigned section_align; /* section alignment */
 
     char *init_symbol; /* symbols to call at load-time (not used currently) */
     char *fini_symbol; /* symbols to call at unload-time (not used currently) */
     
 #ifdef TCC_TARGET_I386
     int seg_size; /* 32. Can be 16 with i386 assembler (.code16) */
+#endif
+#ifdef TCC_TARGET_X86_64
+    int nosse; /* For -mno-sse support. */
 #endif
 
     /* array of all loaded dlls (including those referenced by loaded dlls) */
@@ -666,6 +699,10 @@ struct TCCState {
     /* crt?.o object path */
     char **crt_paths;
     int nb_crt_paths;
+
+    /* -include files */
+    char **cmd_include_files;
+    int nb_cmd_include_files;
 
     /* error handling */
     void *error_opaque;
@@ -720,10 +757,6 @@ struct TCCState {
     /* got & plt handling */
     Section *got;
     Section *plt;
-    struct sym_attr *sym_attrs;
-    int nb_sym_attrs;
-    /* give the correspondance from symtab indexes to dynsym indexes */
-    int *symtab_to_dynsym;
 
     /* temporary dynamic symbol sections (for dll loading) */
     Section *dynsymtab_section;
@@ -731,12 +764,16 @@ struct TCCState {
     Section *dynsym;
     /* copy of the gobal symtab_section variable */
     Section *symtab;
+    /* extra attributes (eg. GOT/PLT value) for symtab symbols */
+    struct sym_attr *sym_attrs;
+    int nb_sym_attrs;
     /* tiny assembler state */
     Sym *asm_labels;
 
 #ifdef TCC_TARGET_PE
     /* PE info */
     int pe_subsystem;
+    unsigned pe_characteristics;
     unsigned pe_file_align;
     unsigned pe_stack_size;
 # ifdef TCC_TARGET_X86_64
@@ -748,12 +785,8 @@ struct TCCState {
 
 #ifdef TCC_IS_NATIVE
     const char *runtime_main;
-    /* for tcc_relocate */
-    void *runtime_mem;
-# ifdef HAVE_SELINUX
-    void *write_mem;
-    unsigned long mem_size;
-# endif
+    void **runtime_mem;
+    int nb_runtime_mem;
 #endif
 
     /* used by main and tcc_parse_args only */
@@ -762,17 +795,19 @@ struct TCCState {
     int nb_libraries; /* number of libs thereof */
     int filetype;
     char *outfile; /* output filename */
-    char *option_m; /* only -m32/-m64 handled */
-    int print_search_dirs; /* option */
     int option_r; /* option -r */
     int do_bench; /* option -bench */
     int gen_deps; /* option -MD  */
     char *deps_outfile; /* option -MF */
     int option_pthread; /* -pthread option */
+    int argc;
+    char **argv;
 };
 
 struct filespec {
-    char type, name[1];
+    char type;
+    char alacarte;
+    char name[1];
 };
 
 /* The current value can be: */
@@ -1025,26 +1060,6 @@ enum tcc_token {
 /* keywords: tok >= TOK_IDENT && tok < TOK_UIDENT */
 #define TOK_UIDENT TOK_DEFINE
 
-/* -------------------------------------------- */
-
-#ifndef PUB_FUNC /* functions used by tcc.c but not in libtcc.h */
-# define PUB_FUNC
-#endif
-
-#ifdef ONE_SOURCE
-#define ST_INLN static inline
-#define ST_FUNC static
-#define ST_DATA static
-#else
-#define ST_INLN
-#define ST_FUNC
-#define ST_DATA extern
-#endif
-
-#ifdef TCC_PROFILE /* profile all functions */
-# define static
-#endif
-
 /* ------------ libtcc.c ------------ */
 
 /* use GNU C extensions */
@@ -1055,9 +1070,9 @@ ST_DATA int tcc_ext;
 ST_DATA struct TCCState *tcc_state;
 
 /* public functions currently used by the tcc main function */
-PUB_FUNC char *pstrcpy(char *buf, int buf_size, const char *s);
-PUB_FUNC char *pstrcat(char *buf, int buf_size, const char *s);
-PUB_FUNC char *pstrncpy(char *out, const char *in, size_t num);
+ST_FUNC char *pstrcpy(char *buf, int buf_size, const char *s);
+ST_FUNC char *pstrcat(char *buf, int buf_size, const char *s);
+ST_FUNC char *pstrncpy(char *out, const char *in, size_t num);
 PUB_FUNC char *tcc_basename(const char *name);
 PUB_FUNC char *tcc_fileextension (const char *name);
 
@@ -1085,13 +1100,13 @@ PUB_FUNC char *tcc_strdup_debug(const char *str, const char *file, int line);
 #define realloc(p, s) use_tcc_realloc(p, s)
 #undef strdup
 #define strdup(s) use_tcc_strdup(s)
-PUB_FUNC void tcc_memstats(int bench);
+PUB_FUNC void tcc_memcheck(void);
 PUB_FUNC void tcc_error_noabort(const char *fmt, ...);
 PUB_FUNC NORETURN void tcc_error(const char *fmt, ...);
 PUB_FUNC void tcc_warning(const char *fmt, ...);
 
 /* other utilities */
-ST_FUNC void dynarray_add(void ***ptab, int *nb_ptr, void *data);
+ST_FUNC void dynarray_add(void *ptab, int *nb_ptr, void *data);
 ST_FUNC void dynarray_reset(void *pp, int *n);
 ST_INLN void cstr_ccat(CString *cstr, int ch);
 ST_FUNC void cstr_cat(CString *cstr, const char *str, int len);
@@ -1100,25 +1115,14 @@ ST_FUNC void cstr_new(CString *cstr);
 ST_FUNC void cstr_free(CString *cstr);
 ST_FUNC void cstr_reset(CString *cstr);
 
-ST_FUNC Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags);
-ST_FUNC void section_realloc(Section *sec, unsigned long new_size);
-ST_FUNC void *section_ptr_add(Section *sec, addr_t size);
-ST_FUNC void section_reserve(Section *sec, unsigned long size);
-ST_FUNC Section *find_section(TCCState *s1, const char *name);
-
-ST_FUNC void put_extern_sym2(Sym *sym, Section *section, addr_t value, unsigned long size, int can_add_underscore);
-ST_FUNC void put_extern_sym(Sym *sym, Section *section, addr_t value, unsigned long size);
-ST_FUNC void greloc(Section *s, Sym *sym, unsigned long offset, int type);
-ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type, addr_t addend);
-
 ST_INLN void sym_free(Sym *sym);
 ST_FUNC Sym *sym_push2(Sym **ps, int v, int t, long c);
 ST_FUNC Sym *sym_find2(Sym *s, int v);
-ST_FUNC Sym *sym_push(int v, CType *type, int r, int c);
-ST_FUNC void sym_pop(Sym **ptop, Sym *b);
+ST_FUNC Sym *sym_push(int v, CType *type, int r, long c);
+ST_FUNC void sym_pop(Sym **ptop, Sym *b, int keep);
 ST_INLN Sym *struct_find(int v);
 ST_INLN Sym *sym_find(int v);
-ST_FUNC Sym *global_identifier_push(int v, int t, int c);
+ST_FUNC Sym *global_identifier_push(int v, int t, long c);
 
 ST_FUNC void tcc_open_bf(TCCState *s1, const char *filename, int initlen);
 ST_FUNC int tcc_open(TCCState *s1, const char *filename);
@@ -1136,7 +1140,6 @@ ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
 #define AFF_TYPE_ASMPP  3
 #define AFF_TYPE_BIN    4
 #define AFF_TYPE_LIB    5
-#define AFF_TYPE_LIBWH  6
 /* values from tcc_object_type(...) */
 #define AFF_BINTYPE_REL 1
 #define AFF_BINTYPE_DYN 2
@@ -1145,17 +1148,24 @@ ST_FUNC int tcc_add_file_internal(TCCState *s1, const char *filename, int flags)
 
 
 ST_FUNC int tcc_add_crt(TCCState *s, const char *filename);
-
-#ifndef TCC_TARGET_PE
 ST_FUNC int tcc_add_dll(TCCState *s, const char *filename, int flags);
-#endif
-
 ST_FUNC void tcc_add_pragma_libs(TCCState *s1);
 PUB_FUNC int tcc_add_library_err(TCCState *s, const char *f);
+PUB_FUNC void tcc_print_stats(TCCState *s, unsigned total_time);
+PUB_FUNC int tcc_parse_args(TCCState *s, int *argc, char ***argv, int optind);
+#ifdef _WIN32
+ST_FUNC char *normalize_slashes(char *path);
+#endif
 
-PUB_FUNC void tcc_print_stats(TCCState *s, int64_t total_time);
-PUB_FUNC int tcc_parse_args(TCCState *s, int argc, char **argv);
-PUB_FUNC void tcc_set_environment(TCCState *s);
+/* tcc_parse_args return codes: */
+#define OPT_HELP 1
+#define OPT_HELP2 2
+#define OPT_V 3
+#define OPT_PRINT_DIRS 4
+#define OPT_AR 5
+#define OPT_IMPDEF 6
+#define OPT_M32 32
+#define OPT_M64 64
 
 /* ------------ tccpp.c ------------ */
 
@@ -1188,15 +1198,22 @@ ST_DATA TokenSym **table_ident;
 #define PARSE_FLAG_ACCEPT_STRAYS 0x0020 /* next() returns '\\' token */
 #define PARSE_FLAG_TOK_STR    0x0040 /* return parsed strings instead of TOK_PPSTR */
 
+/* isidnum_table flags: */
+#define IS_SPC 1
+#define IS_ID  2
+#define IS_NUM 4
+
 ST_FUNC TokenSym *tok_alloc(const char *str, int len);
 ST_FUNC const char *get_tok_str(int v, CValue *cv);
 ST_FUNC void begin_macro(TokenString *str, int alloc);
 ST_FUNC void end_macro(void);
+ST_FUNC void set_idnum(int c, int val);
 ST_FUNC void save_parse_state(ParseState *s);
 ST_FUNC void restore_parse_state(ParseState *s);
 ST_INLN void tok_str_new(TokenString *s);
 ST_FUNC TokenString *tok_str_alloc(void);
-ST_FUNC void tok_str_free(int *str);
+ST_FUNC void tok_str_free(TokenString *s);
+ST_FUNC void tok_str_free_str(int *str);
 ST_FUNC void tok_str_add(TokenString *s, int t);
 ST_FUNC void tok_str_add_tok(TokenString *s);
 ST_INLN void define_push(int v, int macro_type, int *str, Sym *first_arg);
@@ -1211,9 +1228,9 @@ ST_FUNC void preprocess(int is_bof);
 ST_FUNC void next_nomacro(void);
 ST_FUNC void next(void);
 ST_INLN void unget_tok(int last_tok);
-ST_FUNC void preprocess_init(TCCState *s1);
-ST_FUNC void preprocess_new(void);
-ST_FUNC void preprocess_delete(void);
+ST_FUNC void preprocess_start(TCCState *s1);
+ST_FUNC void tccpp_new(TCCState *s);
+ST_FUNC void tccpp_delete(TCCState *s);
 ST_FUNC int tcc_preprocess(TCCState *s1);
 ST_FUNC void skip(int c);
 ST_FUNC NORETURN void expect(const char *msg);
@@ -1236,21 +1253,6 @@ static inline int toup(int c) {
 }
 
 /* ------------ tccgen.c ------------ */
-
-ST_DATA Section *text_section, *data_section, *bss_section; /* predefined sections */
-ST_DATA Section *cur_text_section; /* current section where function code is generated */
-#ifdef CONFIG_TCC_ASM
-ST_DATA Section *last_text_section; /* to handle .previous asm directive */
-#endif
-#ifdef CONFIG_TCC_BCHECK
-/* bound check related sections */
-ST_DATA Section *bounds_section; /* contains global data bound description */
-ST_DATA Section *lbounds_section; /* contains local data bound description */
-#endif
-/* symbol sections */
-ST_DATA Section *symtab_section, *strtab_section;
-/* debug sections */
-ST_DATA Section *stab_section, *stabstr_section;
 
 #define SYM_POOL_NB (8192 / sizeof(Sym))
 ST_DATA Sym *sym_free_first;
@@ -1276,14 +1278,24 @@ ST_DATA int func_vc;
 ST_DATA int last_line_num, last_ind, func_ind; /* debug last line number and pc */
 ST_DATA const char *funcname;
 
+ST_FUNC void tcc_debug_start(TCCState *s1);
+ST_FUNC void tcc_debug_end(TCCState *s1);
+ST_FUNC void tcc_debug_funcstart(TCCState *s1, Sym *sym);
+ST_FUNC void tcc_debug_funcend(TCCState *s1, int size);
+ST_FUNC void tcc_debug_line(TCCState *s1);
+
+ST_FUNC void tccgen_start(TCCState *s1);
+ST_FUNC void tccgen_end(TCCState *s1);
+
+ST_FUNC void free_inline_functions(TCCState *s);
 ST_FUNC void check_vstack(void);
+
 ST_INLN int is_float(int t);
 ST_FUNC int ieee_finite(double d);
 ST_FUNC void test_lvalue(void);
-ST_FUNC void swap(int *p, int *q);
 ST_FUNC void vpushi(int v);
 ST_FUNC Sym *external_global_sym(int v, CType *type, int r);
-ST_FUNC void vset(CType *type, int r, int v);
+ST_FUNC void vset(CType *type, int r, long v);
 ST_FUNC void vswap(void);
 ST_FUNC void vpush_global_sym(CType *type, int v);
 ST_FUNC void vrote(SValue *e, int n);
@@ -1307,6 +1319,7 @@ ST_FUNC int type_size(CType *type, int *a);
 ST_FUNC void mk_pointer(CType *type);
 ST_FUNC void vstore(void);
 ST_FUNC void inc(int post, int c);
+ST_FUNC void parse_mult_str (CString *astr, const char *msg);
 ST_FUNC void parse_asm_str(CString *astr);
 ST_FUNC int lvalue_type(int t);
 ST_FUNC void indir(void);
@@ -1315,7 +1328,6 @@ ST_FUNC void expr_prod(void);
 ST_FUNC void expr_sum(void);
 ST_FUNC void gexpr(void);
 ST_FUNC int expr_const(void);
-ST_FUNC void gen_inline_functions(void);
 ST_FUNC void decl(int l);
 #if defined CONFIG_TCC_BCHECK || defined TCC_TARGET_C67
 ST_FUNC Sym *get_sym_ref(CType *type, Section *sec, unsigned long offset, unsigned long size);
@@ -1340,11 +1352,41 @@ typedef struct {
     unsigned int n_value;        /* value of symbol */
 } Stab_Sym;
 
+ST_DATA Section *text_section, *data_section, *bss_section; /* predefined sections */
+ST_DATA Section *cur_text_section; /* current section where function code is generated */
+#ifdef CONFIG_TCC_ASM
+ST_DATA Section *last_text_section; /* to handle .previous asm directive */
+#endif
+#ifdef CONFIG_TCC_BCHECK
+/* bound check related sections */
+ST_DATA Section *bounds_section; /* contains global data bound description */
+ST_DATA Section *lbounds_section; /* contains local data bound description */
+ST_FUNC void tccelf_bounds_new(TCCState *s);
+#endif
+/* symbol sections */
+ST_DATA Section *symtab_section, *strtab_section;
+/* debug sections */
+ST_DATA Section *stab_section, *stabstr_section;
+
+ST_FUNC void tccelf_new(TCCState *s);
+ST_FUNC void tccelf_delete(TCCState *s);
+ST_FUNC void tccelf_stab_new(TCCState *s);
+
+ST_FUNC Section *new_section(TCCState *s1, const char *name, int sh_type, int sh_flags);
+ST_FUNC void section_realloc(Section *sec, unsigned long new_size);
+ST_FUNC void *section_ptr_add(Section *sec, addr_t size);
+ST_FUNC void section_reserve(Section *sec, unsigned long size);
+ST_FUNC Section *find_section(TCCState *s1, const char *name);
 ST_FUNC Section *new_symtab(TCCState *s1, const char *symtab_name, int sh_type, int sh_flags, const char *strtab_name, const char *hash_name, int hash_sh_flags);
+
+ST_FUNC void put_extern_sym2(Sym *sym, Section *section, addr_t value, unsigned long size, int can_add_underscore);
+ST_FUNC void put_extern_sym(Sym *sym, Section *section, addr_t value, unsigned long size);
+ST_FUNC void greloc(Section *s, Sym *sym, unsigned long offset, int type);
+ST_FUNC void greloca(Section *s, Sym *sym, unsigned long offset, int type, addr_t addend);
 
 ST_FUNC int put_elf_str(Section *s, const char *sym);
 ST_FUNC int put_elf_sym(Section *s, addr_t value, unsigned long size, int info, int other, int shndx, const char *name);
-ST_FUNC int add_elf_sym(Section *s, addr_t value, unsigned long size, int info, int other, int sh_num, const char *name);
+ST_FUNC int set_elf_sym(Section *s, addr_t value, unsigned long size, int info, int other, int shndx, const char *name);
 ST_FUNC int find_elf_sym(Section *s, const char *name);
 ST_FUNC void put_elf_reloc(Section *symtab, Section *s, unsigned long offset, int type, int symbol);
 ST_FUNC void put_elf_reloca(Section *symtab, Section *s, unsigned long offset, int type, int symbol, addr_t addend);
@@ -1355,18 +1397,19 @@ ST_FUNC void put_stabn(int type, int other, int desc, int value);
 ST_FUNC void put_stabd(int type, int other, int desc);
 
 ST_FUNC void relocate_common_syms(void);
-ST_FUNC void relocate_syms(TCCState *s1, int do_resolve);
+ST_FUNC void relocate_syms(TCCState *s1, Section *symtab, int do_resolve);
 ST_FUNC void relocate_section(TCCState *s1, Section *s);
-ST_FUNC void relocate_plt(TCCState *s1);
 
 ST_FUNC void tcc_add_linker_symbols(TCCState *s1);
 ST_FUNC int tcc_object_type(int fd, ElfW(Ehdr) *h);
 ST_FUNC int tcc_load_object_file(TCCState *s1, int fd, unsigned long file_offset);
 ST_FUNC int tcc_load_archive(TCCState *s1, int fd);
 ST_FUNC void tcc_add_bcheck(TCCState *s1);
+ST_FUNC void tcc_add_runtime(TCCState *s1);
 
 ST_FUNC void build_got_entries(TCCState *s1);
-ST_FUNC void tcc_add_runtime(TCCState *s1);
+ST_FUNC struct sym_attr *get_sym_attr(TCCState *s1, int index, int alloc);
+ST_FUNC void squeeze_multi_relocs(Section *sec, size_t oldrelocoffset);
 
 ST_FUNC addr_t get_elf_sym_addr(TCCState *s, const char *name, int err);
 #if defined TCC_IS_NATIVE || defined TCC_TARGET_PE
@@ -1381,6 +1424,24 @@ ST_FUNC void minp(void);
 ST_INLN void inp(void);
 ST_FUNC int handle_eob(void);
 #endif
+
+/* ------------ xxx-link.c ------------ */
+
+/* Wether to generate a GOT/PLT entry and when. NO_GOTPLT_ENTRY is first so
+   that unknown relocation don't create a GOT or PLT entry */
+enum gotplt_entry {
+    NO_GOTPLT_ENTRY,	/* never generate (eg. GLOB_DAT & JMP_SLOT relocs) */
+    BUILD_GOT_ONLY,	/* only build GOT (eg. TPOFF relocs) */
+    AUTO_GOTPLT_ENTRY,	/* generate if sym is UNDEF */
+    ALWAYS_GOTPLT_ENTRY	/* always generate (eg. PLTOFF relocs) */
+};
+
+ST_FUNC int code_reloc (int reloc_type);
+ST_FUNC int gotplt_entry_type (int reloc_type);
+ST_FUNC unsigned create_plt_entry(TCCState *s1, unsigned got_offset, struct sym_attr *attr);
+ST_FUNC void relocate_init(Section *sr);
+ST_FUNC void relocate(TCCState *s1, ElfW_Rel *rel, int type, char *ptr, addr_t addr, addr_t val);
+ST_FUNC void relocate_plt(TCCState *s1);
 
 /* ------------ xxx-gen.c ------------ */
 
@@ -1429,21 +1490,26 @@ static inline uint32_t read32le(unsigned char *p) {
 static inline void write32le(unsigned char *p, uint32_t x) {
     write16le(p, x), write16le(p + 2, x >> 16);
 }
+static inline void add32le(unsigned char *p, int32_t x) {
+    write32le(p, read32le(p) + x);
+}
 static inline uint64_t read64le(unsigned char *p) {
   return read32le(p) | (uint64_t)read32le(p + 4) << 32;
 }
 static inline void write64le(unsigned char *p, uint64_t x) {
     write32le(p, x), write32le(p + 4, x >> 32);
 }
+static inline void add64le(unsigned char *p, int64_t x) {
+    write64le(p, read64le(p) + x);
+}
 
 /* ------------ i386-gen.c ------------ */
 #if defined TCC_TARGET_I386 || defined TCC_TARGET_X86_64
 ST_FUNC void g(int c);
-ST_FUNC int oad(int c, int s);
 ST_FUNC void gen_le16(int c);
 ST_FUNC void gen_le32(int c);
-ST_FUNC void gen_addr32(int r, Sym *sym, int c);
-ST_FUNC void gen_addrpc32(int r, Sym *sym, int c);
+ST_FUNC void gen_addr32(int r, Sym *sym, long c);
+ST_FUNC void gen_addrpc32(int r, Sym *sym, long c);
 #endif
 
 #ifdef CONFIG_TCC_BCHECK
@@ -1460,10 +1526,9 @@ ST_FUNC void gen_opl(int op);
 /* ------------ arm-gen.c ------------ */
 #ifdef TCC_TARGET_ARM
 #if defined(TCC_ARM_EABI) && !defined(CONFIG_TCC_ELFINTERP)
-ST_FUNC char *default_elfinterp(struct TCCState *s);
+PUB_FUNC char *default_elfinterp(struct TCCState *s);
 #endif
 ST_FUNC void arm_init(struct TCCState *s);
-ST_FUNC uint32_t encbranch(int pos, int addr, int fail);
 ST_FUNC void gen_cvt_itof1(int t);
 #endif
 
@@ -1471,7 +1536,7 @@ ST_FUNC void gen_cvt_itof1(int t);
 #ifdef TCC_TARGET_ARM64
 ST_FUNC void gen_cvt_sxtw(void);
 ST_FUNC void gen_opl(int op);
-ST_FUNC void greturn(void);
+ST_FUNC void gfunc_return(CType *func_type);
 ST_FUNC void gen_va_start(void);
 ST_FUNC void gen_va_arg(CType *t);
 ST_FUNC void gen_clear_cache(void);
@@ -1493,12 +1558,17 @@ ST_FUNC void asm_instr(void);
 ST_FUNC void asm_global_instr(void);
 #ifdef CONFIG_TCC_ASM
 ST_FUNC int find_constraint(ASMOperand *operands, int nb_operands, const char *name, const char **pp);
+ST_FUNC Sym* get_asm_sym(int name, Sym *csym);
 ST_FUNC void asm_expr(TCCState *s1, ExprValue *pe);
 ST_FUNC int asm_int_expr(TCCState *s1);
 ST_FUNC int tcc_assemble(TCCState *s1, int do_preprocess);
 /* ------------ i386-asm.c ------------ */
 ST_FUNC void gen_expr32(ExprValue *pe);
+#ifdef TCC_TARGET_X86_64
+ST_FUNC void gen_expr64(ExprValue *pe);
+#endif
 ST_FUNC void asm_opcode(TCCState *s1, int opcode);
+ST_FUNC int asm_parse_regvar(int t);
 ST_FUNC void asm_compute_constraints(ASMOperand *operands, int nb_operands, int nb_outputs, const uint8_t *clobber_regs, int *pout_reg);
 ST_FUNC void subst_asm_operand(CString *add_str, SValue *sv, int modifier);
 ST_FUNC void asm_gen_code(ASMOperand *operands, int nb_operands, int nb_outputs, int is_output, uint8_t *clobber_regs, int out_reg);
@@ -1516,6 +1586,7 @@ ST_FUNC SValue *pe_getimport(SValue *sv, SValue *v2);
 #ifdef TCC_TARGET_X86_64
 ST_FUNC void pe_add_unwind_data(unsigned start, unsigned end, unsigned stack);
 #endif
+PUB_FUNC int tcc_get_dllexports(const char *filename, char **pp);
 /* symbol properties stored in Elf32_Sym->st_other */
 # define ST_PE_EXPORT 0x10
 # define ST_PE_IMPORT 0x20
@@ -1533,15 +1604,25 @@ ST_FUNC void pe_add_unwind_data(unsigned start, unsigned end, unsigned stack);
 ST_FUNC void *dlopen(const char *filename, int flag);
 ST_FUNC void dlclose(void *p);
 ST_FUNC const char *dlerror(void);
-ST_FUNC void *dlsym(int flag, const char *symbol);
+ST_FUNC void *dlsym(void *handle, const char *symbol);
 #endif
-
 #ifdef CONFIG_TCC_BACKTRACE
 ST_DATA int rt_num_callers;
 ST_DATA const char **rt_bound_error_msg;
 ST_DATA void *rt_prog_main;
 ST_FUNC void tcc_set_num_callers(int n);
 #endif
+ST_FUNC void tcc_run_free(TCCState *s1);
+#endif
+
+/* ------------ tcctools.c ----------------- */
+#if 0 /* included in tcc.c */
+ST_FUNC int tcc_tool_ar(TCCState *s, int argc, char **argv);
+#ifdef TCC_TARGET_PE
+ST_FUNC int tcc_tool_impdef(TCCState *s, int argc, char **argv);
+#endif
+ST_FUNC void tcc_tool_cross(TCCState *s, char **argv, int option);
+ST_FUNC void gen_makedeps(TCCState *s, const char *target, const char *filename);
 #endif
 
 /********************************************************/

@@ -27,11 +27,7 @@ along with this program; see the file COPYING.  If not, write to
 the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  
 */
-
 #include "r3.h"
-
-#include <stdint.h>
-
 #define W_TYPE_SIZE   32
 #define BITS_PER_UNIT 8
 
@@ -521,30 +517,6 @@ TCC_EXPORT long long __ashldi3(long long a, int b)
 #endif
 }
 
-#ifndef COMMIT_4ad186c5ef61_IS_FIXED
-long long __tcc_cvt_ftol(long double x)
-{
-    unsigned c0, c1;
-    long long retv;
-#ifdef _MSC_VER
-    __asm fnstcw c0
-    c1 = c0 | 0x0C00;
-    __asm {
-        fldcw c1
-        fistp retv
-        fldcw c0
-    }
-#else
-    __asm__ __volatile__ ("fnstcw %0" : "=m" (c0));
-    c1 = c0 | 0x0C00;
-    __asm__ __volatile__ ("fldcw %0" : : "m" (c1));
-    __asm__ __volatile__ ("fistpll %0"  : "=m" (retv));
-    __asm__ __volatile__ ("fldcw %0" : : "m" (c0));
-#endif
-    return retv;
-}
-#endif
-
 #endif /* !__x86_64__ */
 
 /* XXX: fix tcc's code generator to do this instead */
@@ -766,23 +738,15 @@ TCC_EXPORT void *__va_arg(__va_list_struct *ap,
         abort();
     }
 }
-
 #endif /* __x86_64__ */
 
-/* Flushing for tccrun */
-#if defined(TCC_TARGET_X86_64) || defined(TCC_TARGET_I386)
-
-TCC_EXPORT void __clear_cache(void *beginning, void *end)
-{
-}
-
-#elif defined(TCC_TARGET_ARM)
-
+#if defined TCC_TARGET_ARM && !defined __TINYC__
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <stdio.h>
 
+/* Flushing for tccrun */
 TCC_EXPORT void __clear_cache(void *beginning, void *end)
 {
 /* __ARM_NR_cacheflush is kernel private and should not be used in user space.
@@ -798,10 +762,7 @@ TCC_EXPORT void __clear_cache(void *beginning, void *end)
              "ret");
 #endif
 }
-
-#else
-#warning __clear_cache not defined for this architecture, avoid using tcc -run
-#endif
+#endif /* arm */
 
 #ifdef EMBEDDED_IN_R3
 extern void *r3_tcc_alloca(int);

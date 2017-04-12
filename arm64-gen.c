@@ -41,19 +41,6 @@
 #define CHAR_IS_UNSIGNED
 
 /******************************************************/
-/* ELF defines */
-
-#define EM_TCC_TARGET EM_AARCH64
-
-#define R_DATA_32  R_AARCH64_ABS32
-#define R_DATA_PTR R_AARCH64_ABS64
-#define R_JMP_SLOT R_AARCH64_JUMP_SLOT
-#define R_COPY     R_AARCH64_COPY
-
-#define ELF_START_ADDR 0x00400000
-#define ELF_PAGE_SIZE 0x1000
-
-/******************************************************/
 #else /* ! TARGET_DEFS_ONLY */
 /******************************************************/
 #include "tcc.h"
@@ -108,6 +95,8 @@ static uint32_t fltr(int r)
 ST_FUNC void o(unsigned int c)
 {
     int ind1 = ind + 4;
+    if (nocode_wanted)
+        return;
     if (ind1 > cur_text_section->data_allocated)
         section_realloc(cur_text_section, ind1);
     write32le(cur_text_section->data + ind, c);
@@ -592,22 +581,10 @@ ST_FUNC void store(int r, SValue *sv)
 
 static void arm64_gen_bl_or_b(int b)
 {
-    // Currently TCC's linker does not generate a PLT when TCC is invoked
-    // with "-run". This means functions can be out of range if we try to
-    // call them in the usual way. Until the linker is fixed, work around
-    // this by using R_AARCH64_MOVW_UABS_G* relocations; see arm64_sym.
-    int avoid_call26 = 1;
-
     if ((vtop->r & (VT_VALMASK | VT_LVAL)) == VT_CONST) {
         assert(!b && (vtop->r & VT_SYM));
-        if (avoid_call26) {
-            arm64_sym(30, vtop->sym, 0);
-            o(0xd63f03c0); // blr x30
-        }
-        else {
-            greloc(cur_text_section, vtop->sym, ind, R_AARCH64_CALL26);
-            o(0x94000000); // bl .
-        }
+	greloc(cur_text_section, vtop->sym, ind, R_AARCH64_CALL26);
+	o(0x94000000); // bl .
     }
     else
         o(0xd61f0000 | (uint32_t)!b << 21 | intr(gv(RC_R30)) << 5); // br/blr
@@ -1216,9 +1193,9 @@ ST_FUNC int gfunc_sret(CType *vt, int variadic, CType *ret,
     return 0;
 }
 
-ST_FUNC void greturn(void)
+ST_FUNC void gfunc_return(CType *func_type)
 {
-    CType *t = &func_vt;
+    CType *t = func_type;
     unsigned long a;
 
     arm64_pcs(0, &t, &a);
@@ -1226,8 +1203,8 @@ ST_FUNC void greturn(void)
     case -1:
         break;
     case 0:
-        if ((func_vt.t & VT_BTYPE) == VT_STRUCT) {
-            int align, size = type_size(&func_vt, &align);
+        if ((func_type->t & VT_BTYPE) == VT_STRUCT) {
+            int align, size = type_size(func_type, &align);
             gaddrof();
             gv(RC_R(0));
             arm64_ldrs(0, size);
@@ -1236,7 +1213,7 @@ ST_FUNC void greturn(void)
             gv(RC_IRET);
         break;
     case 1: {
-        CType type = func_vt;
+        CType type = *func_type;
         mk_pointer(&type);
         vset(&type, VT_LOCAL | VT_LVAL, func_vc);
         indir();
@@ -1245,7 +1222,7 @@ ST_FUNC void greturn(void)
         break;
     }
     case 16:
-        if ((func_vt.t & VT_BTYPE) == VT_STRUCT) {
+        if ((func_type->t & VT_BTYPE) == VT_STRUCT) {
           uint32_t j, sz, n = arm64_hfa(&vtop->type, &sz);
           gaddrof();
           gv(RC_R(0));
@@ -1260,6 +1237,7 @@ ST_FUNC void greturn(void)
     default:
       assert(0);
     }
+    vtop--;
 }
 
 ST_FUNC void gfunc_epilog(void)
@@ -1303,6 +1281,8 @@ ST_FUNC void gfunc_epilog(void)
 ST_FUNC int gjmp(int t)
 {
     int r = ind;
+    if (nocode_wanted)
+        return t;
     o(t);
     return r;
 }
@@ -1351,7 +1331,8 @@ static int arm64_iconst(uint64_t *val, SValue *sv)
         return 0;
     if (val) {
         int t = sv->type.t;
-        *val = ((t & VT_BTYPE) == VT_LLONG ? sv->c.i :
+	int bt = t & VT_BTYPE;
+        *val = ((bt == VT_LLONG || bt == VT_PTR) ? sv->c.i :
                 (uint32_t)sv->c.i |
                 (t & VT_UNSIGNED ? 0 : -(sv->c.i & 0x80000000)));
     }

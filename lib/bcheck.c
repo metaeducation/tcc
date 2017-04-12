@@ -49,7 +49,7 @@
     || defined(__DragonFly__) || defined(__dietlibc__) \
     || defined(__UCLIBC__) || defined(__OpenBSD__) || defined(__NetBSD__) \
     || defined(_WIN32) || defined(TCC_UCLIBC)
-#warning Bound checking does not support malloc (etc.) in this environment.
+//#warning Bound checking does not support malloc (etc.) in this environment.
 #undef CONFIG_TCC_MALLOC_HOOKS
 #undef HAVE_MEMALIGN
 #endif
@@ -234,6 +234,15 @@ BOUND_PTR_INDIR(8)
 BOUND_PTR_INDIR(12)
 BOUND_PTR_INDIR(16)
 
+#if defined(__GNUC__) && (__GNUC__ >= 6)
+/*
+ * At least gcc 6.2 complains when __builtin_frame_address is used whith
+ * nonzero argument.
+ */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wframe-address"
+#endif
+
 /* return the frame pointer of the caller */
 #define GET_CALLER_FP(fp)\
 {\
@@ -273,6 +282,10 @@ void FASTCALL __bound_local_delete(void *p1)
         __bound_delete_region((void *)addr);
     }
 }
+
+#if defined(__GNUC__) && (__GNUC__ >= 6)
+#pragma GCC diagnostic pop
+#endif
 
 static BoundEntry *__bound_new_page(void)
 {
