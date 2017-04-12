@@ -662,7 +662,7 @@ TCC_EXPORT long long __fixxfdi (long double a1)
 
 #ifndef __TINYC__
 #include <stdlib.h>
-#include <stdio.h>
+//#include <stdio.h> // <stdio.h> includes <stdarg.h> which cause conflicts later.
 #include <string.h>
 #else
 /* Avoid including stdlib.h because it is not easily available when
@@ -732,9 +732,9 @@ TCC_EXPORT void *__va_arg(__va_list_struct *ap,
         return ap->overflow_arg_area - size;
 
     default:
-#ifndef __TINYC__
-        fprintf(stderr, "unknown ABI type for __va_arg\n");
-#endif
+//#ifndef __TINYC__
+        //fprintf(stderr, "unknown ABI type for __va_arg\n");
+//#endif
         abort();
     }
 }
@@ -765,7 +765,6 @@ TCC_EXPORT void __clear_cache(void *beginning, void *end)
 #endif /* arm */
 
 #ifdef EMBEDDED_IN_R3
-extern void *r3_tcc_alloca(int);
 const void * r3_libtcc1_symbols[] = {
     "alloca", r3_tcc_alloca,
 #if !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_ARM)
@@ -790,7 +789,9 @@ const void * r3_libtcc1_symbols[] = {
     SYM_FUNC(__va_start),
     SYM_FUNC(__va_arg),
 #endif
+#if defined TCC_TARGET_ARM && !defined __TINYC__
     SYM_FUNC(__clear_cache),
+#endif
     0, 0 //Terminator
 };
 
