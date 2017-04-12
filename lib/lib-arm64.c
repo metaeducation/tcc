@@ -26,7 +26,7 @@ void *memcpy(void*,void*,__SIZE_TYPE__);
 #include <string.h>
 #endif
 
-void __clear_cache(void *beg, void *end)
+TCC_EXPORT void __clear_cache(void *beg, void *end)
 {
 #ifdef __TINYC__
     __arm64_clear_cache(beg, end);
