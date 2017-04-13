@@ -765,6 +765,7 @@ TCC_EXPORT void __clear_cache(void *beginning, void *end)
 #endif /* arm */
 
 #ifdef EMBEDDED_IN_R3
+void *r3_tcc_alloca(size_t);
 const void * r3_libtcc1_symbols[] = {
     "alloca", r3_tcc_alloca,
 #if !defined(TCC_TARGET_X86_64) && !defined(TCC_TARGET_ARM)
